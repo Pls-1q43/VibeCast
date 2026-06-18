@@ -22,8 +22,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         session = SessionManager(serverName: serverName, accessibilityGranted: accessibilityGranted())
         session.delegate = self
 
+        // 首次启动：若未授权辅助功能，弹出系统授权提示（PRD 7.2）。
+        if !AccessibilityPermission.isGranted {
+            AccessibilityPermission.promptIfNeeded()
+        }
+
         startServer()
         rebuildMenu()
+
+        // 权限可能在运行中被授予，菜单周期性刷新权限状态。
+        Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            self?.rebuildMenu()
+        }
     }
 
     // MARK: - Server 生命周期
@@ -56,7 +66,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     // MARK: - 权限
 
     private func accessibilityGranted() -> Bool {
-        AXIsProcessTrusted()
+        AccessibilityPermission.isGranted
     }
 
     // MARK: - 菜单
@@ -128,8 +138,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func openAccessibilitySettings() {
-        let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
-        NSWorkspace.shared.open(url)
+        AccessibilityPermission.openSettings()
     }
 
     @objc private func restart() {

@@ -1,5 +1,5 @@
 // 会话与协议分发。M2：hello 握手 + 令牌校验 + 单一活动会话约束。
-// M3+：select_target / text_snapshot / send 将在此扩展接入 Accessibility 层。
+// M3：select_target → 应用激活 + 聚焦 + 绑定校验。text_snapshot/send 仍为桩（M4/M5）。
 
 import Foundation
 
@@ -13,18 +13,25 @@ final class SessionManager: ServerDelegate {
     weak var delegate: SessionManagerDelegate?
 
     private let serverName: String
-    /// 是否已授予辅助功能权限（M3 接入真实检测，M2 先由外部注入）。
+    /// 是否已授予辅助功能权限（实时通过 AccessibilityPermission 读取，此处仅缓存初值）。
     var accessibilityGranted: Bool
+
+    private let config: TargetConfigStore
+    /// 聚焦/激活在后台串行队列执行（含同步等待，勿阻塞主线程/服务队列）。
+    private let focusQueue = DispatchQueue(label: "vibecast.focus")
 
     /// 已完成 hello 握手的连接。
     private var paired: [UUID: Connection] = [:]
     /// 当前活动控制连接（单一活动会话，PRD 12.2）。
     private var activeControllerId: UUID?
+    /// 当前活动目标绑定（仅一个，PRD 12.2）。
+    private var activeBinding: TargetBinding?
     private let lock = NSLock()
 
-    init(serverName: String, accessibilityGranted: Bool) {
+    init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore()) {
         self.serverName = serverName
         self.accessibilityGranted = accessibilityGranted
+        self.config = config
     }
 
     // MARK: - ServerDelegate
@@ -51,9 +58,11 @@ final class SessionManager: ServerDelegate {
             if let ping = try? ProtocolCodec.decoder.decode(PingMessage.self, from: data) {
                 send(conn, PongMessage(t: ping.t))
             }
-        case "select_target", "text_snapshot", "send", "clear":
-            // M3+ 实现。M2 阶段先回非聚焦状态，保证前端不卡死。
-            handleStubTargeted(conn, type: type, data: data)
+        case "select_target":
+            handleSelectTarget(conn, data: data)
+        case "text_snapshot", "send", "clear":
+            // 文本写入/发送在 M4/M5 接入。M3 阶段：校验绑定后回当前聚焦状态，不写文本。
+            handleTextStub(conn, type: type, data: data)
         default:
             sendError(conn, code: .badMessage, message: "未知消息类型: \(type)")
         }
@@ -98,32 +107,98 @@ final class SessionManager: ServerDelegate {
         lock.unlock()
 
         let targets = TargetId.allCases.map {
-            TargetInfo(id: $0, displayName: $0.rawValue.capitalized, available: true)
+            TargetInfo(id: $0, displayName: config.profile($0).displayName, available: true)
         }
         send(conn, HelloAckMessage(serverName: serverName,
                                    protocolVersion: kProtocolVersion,
                                    targets: targets,
-                                   accessibilityGranted: accessibilityGranted))
+                                   accessibilityGranted: AccessibilityPermission.isGranted))
         delegate?.sessionPairedCountChanged(count)
         delegate?.sessionDidLog("paired \(hello.deviceName) (\(conn.id.uuidString.prefix(8)))")
     }
 
-    /// M2 临时桩：对目标类消息回一个「未聚焦」状态，待 M3 接入真实聚焦。
-    private func handleStubTargeted(_ conn: Connection, type: String, data: Data) {
-        struct TargetedEnvelope: Codable { let sessionId: String; let targetId: TargetId }
+    struct TargetedEnvelope: Codable { let sessionId: String; let targetId: TargetId }
+
+    /// 处理目标选择：后台激活+聚焦，记录绑定，回 target_status。PRD 9。
+    private func handleSelectTarget(_ conn: Connection, data: Data) {
         guard let env = try? ProtocolCodec.decoder.decode(TargetedEnvelope.self, from: data) else {
-            sendError(conn, code: .badMessage, message: "\(type) 结构错误")
+            sendError(conn, code: .badMessage, message: "select_target 结构错误")
             return
         }
-        // 仅活动控制端可操作目标。
+        // 仅活动控制端可操作目标（单一活动会话）。
         lock.lock(); let isActive = (activeControllerId == conn.id); lock.unlock()
         guard isActive else {
             sendError(conn, code: .rateLimited, message: "非活动会话，暂不可操作")
             return
         }
+
+        guard AccessibilityPermission.isGranted else {
+            send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                           status: .noPermission, errorCode: .noAccessibilityPermission,
+                                           message: "Mac 缺少辅助功能权限"))
+            return
+        }
+
+        // 先回「正在聚焦」，再后台执行（可能耗时数百毫秒）。
         send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
-                                       status: .focusing, errorCode: nil,
-                                       message: "M2 阶段：聚焦能力在 M3 接入"))
+                                       status: .focusing, errorCode: nil, message: nil))
+
+        let profile = config.profile(env.targetId)
+        focusQueue.async { [weak self, weak conn] in
+            guard let self, let conn else { return }
+            let outcome = FocusController.focus(targetId: env.targetId, sessionId: env.sessionId, profile: profile)
+            let status: TargetStatusMessage
+            switch outcome {
+            case .focused(let binding):
+                self.lock.lock(); self.activeBinding = binding; self.lock.unlock()
+                self.delegate?.sessionDidLog("focused \(env.targetId.rawValue) pid=\(binding.pid) role=\(binding.role ?? "?")")
+                status = TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                             status: .focused, errorCode: nil, message: nil)
+            case .appNotRunning:
+                status = TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                             status: .appNotRunning, errorCode: .appNotRunning,
+                                             message: "应用未运行")
+            case .appLaunchFailed(let m):
+                status = TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                             status: .appNotRunning, errorCode: .appLaunchFailed, message: m)
+            case .noPermission:
+                status = TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                             status: .noPermission, errorCode: .noAccessibilityPermission,
+                                             message: "Mac 缺少辅助功能权限")
+            case .notFocused(let m):
+                status = TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                             status: .notFocused, errorCode: .targetNotFocused, message: m)
+            }
+            self.send(conn, status)
+        }
+    }
+
+    /// M3 桩：文本/发送暂不写入；先校验当前绑定是否仍有效，给前端真实反馈。
+    private func handleTextStub(_ conn: Connection, type: String, data: Data) {
+        guard let env = try? ProtocolCodec.decoder.decode(TargetedEnvelope.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "\(type) 结构错误")
+            return
+        }
+        lock.lock(); let binding = activeBinding; lock.unlock()
+        guard let binding, binding.targetId == env.targetId else {
+            send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                           status: .notFocused, errorCode: .targetNotFocused,
+                                           message: "目标未聚焦"))
+            return
+        }
+        // 后台校验绑定（含 AX 查询）。
+        focusQueue.async { [weak self, weak conn] in
+            guard let self, let conn else { return }
+            if FocusController.validate(binding) {
+                // M4 将在此写入文本；M3 仅确认聚焦仍有效。
+                self.delegate?.sessionDidLog("\(type) binding-valid \(env.targetId.rawValue) (M4 写入待接入)")
+            } else {
+                self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
+                self.send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                                    status: .notFocused, errorCode: .targetNotFocused,
+                                                    message: "目标失焦"))
+            }
+        }
     }
 
     // MARK: - 发送辅助
