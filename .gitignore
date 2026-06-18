@@ -1,0 +1,15 @@
+# Node
+web/node_modules/
+web/dist/
+
+# Swift
+mac/.build/
+mac/.swiftpm/
+*.xcodeproj
+
+# Generated web build assets (rebuilt from web/ source via `npm run build`).
+# index.html is kept as a committed placeholder so `swift build` always finds the resource.
+mac/Sources/VibeCast/Resources/web/assets/
+
+# macOS
+.DS_Store

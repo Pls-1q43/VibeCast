@@ -1,0 +1,168 @@
+// VibeCast 同步协议 v1 — 与 shared/protocol.md 对齐。
+// 前后端唯一对齐来源，修改前请同步更新 shared/protocol.md 与 web/src/ws/protocol.ts。
+
+import Foundation
+
+let kProtocolVersion = 1
+
+enum TargetId: String, Codable, CaseIterable, Sendable {
+    case codex
+    case workbuddy
+    case notion
+    case codebuddy
+}
+
+enum ErrorCode: String, Codable, Sendable {
+    case unpaired = "UNPAIRED"
+    case badToken = "BAD_TOKEN"
+    case badMessage = "BAD_MESSAGE"
+    case unknownTarget = "UNKNOWN_TARGET"
+    case appNotRunning = "APP_NOT_RUNNING"
+    case appLaunchFailed = "APP_LAUNCH_FAILED"
+    case targetNotFocused = "TARGET_NOT_FOCUSED"
+    case noAccessibilityPermission = "NO_ACCESSIBILITY_PERMISSION"
+    case staleRevision = "STALE_REVISION"
+    case writeFailed = "WRITE_FAILED"
+    case sendFailed = "SEND_FAILED"
+    case sendUnknown = "SEND_UNKNOWN"
+    case rateLimited = "RATE_LIMITED"
+}
+
+enum TargetStatus: String, Codable, Sendable {
+    case focusing
+    case focused
+    case appNotRunning = "app_not_running"
+    case notFocused = "not_focused"
+    case noPermission = "no_permission"
+    case error
+}
+
+// MARK: - 手机 → Mac
+
+struct HelloMessage: Codable, Sendable {
+    let type: String
+    let protocolVersion: Int
+    let clientId: String
+    let deviceName: String
+    let pairingToken: String
+}
+
+struct SelectTargetMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+}
+
+struct TextSnapshotMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let revision: Int
+    let text: String
+    let selectionStart: Int
+    let selectionEnd: Int
+    let isComposing: Bool
+    let clientTimestamp: Int64?
+}
+
+struct SendRequestMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let revision: Int
+}
+
+struct ClearMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let revision: Int
+}
+
+struct PingMessage: Codable, Sendable {
+    let type: String
+    let t: Int64
+}
+
+// MARK: - Mac → 手机
+
+struct TargetInfo: Codable, Sendable {
+    let id: TargetId
+    let displayName: String
+    let available: Bool
+}
+
+struct HelloAckMessage: Codable, Sendable {
+    var type = "hello_ack"
+    let serverName: String
+    let protocolVersion: Int
+    let targets: [TargetInfo]
+    let accessibilityGranted: Bool
+}
+
+struct TargetStatusMessage: Codable, Sendable {
+    var type = "target_status"
+    let sessionId: String
+    let targetId: TargetId
+    let status: TargetStatus
+    let errorCode: ErrorCode?
+    let message: String?
+}
+
+struct TextAckMessage: Codable, Sendable {
+    var type = "text_ack"
+    let sessionId: String
+    let targetId: TargetId
+    let revision: Int
+    let applied: Bool
+    let errorCode: ErrorCode?
+}
+
+struct SendResultMessage: Codable, Sendable {
+    var type = "send_result"
+    let sessionId: String
+    let targetId: TargetId
+    let revision: Int
+    let success: Bool
+    let errorCode: ErrorCode?
+    let message: String?
+}
+
+struct ErrorMessage: Codable, Sendable {
+    var type = "error"
+    let errorCode: ErrorCode
+    let message: String
+}
+
+struct PongMessage: Codable, Sendable {
+    var type = "pong"
+    let t: Int64
+}
+
+// MARK: - 解码分发
+
+/// 仅用于先读出 `type` 字段，再按类型二次解码。
+struct MessageEnvelope: Codable, Sendable {
+    let type: String
+}
+
+enum ProtocolError: Error {
+    case badMessage(String)
+}
+
+enum ProtocolCodec {
+    static let decoder = JSONDecoder()
+    static let encoder = JSONEncoder()
+
+    static func messageType(of data: Data) throws -> String {
+        do {
+            return try decoder.decode(MessageEnvelope.self, from: data).type
+        } catch {
+            throw ProtocolError.badMessage("无法解析消息 type 字段")
+        }
+    }
+
+    static func encode<T: Encodable>(_ value: T) throws -> Data {
+        try encoder.encode(value)
+    }
+}
