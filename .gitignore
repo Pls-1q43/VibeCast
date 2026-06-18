@@ -11,5 +11,9 @@ mac/.swiftpm/
 # index.html is kept as a committed placeholder so `swift build` always finds the resource.
 mac/Sources/VibeCast/Resources/web/assets/
 
+# Test/automation artifacts
+web/.playwright-cli/
+web/*.png
+
 # macOS
 .DS_Store
