@@ -89,6 +89,22 @@ final class SessionManager: ServerDelegate {
         // 原始 TCP 连接数变化暂不直接用于 UI（以 paired 计数为准）。
     }
 
+    // MARK: - 系统事件
+
+    /// Mac 进入睡眠：清空活动绑定，使唤醒后必须重新选目标（PRD 16.5）。
+    /// 不恢复未完成发送动作。
+    func handleSystemWillSleep() {
+        lock.lock()
+        activeBinding = nil
+        lock.unlock()
+        delegate?.sessionDidLog("system will sleep: 清空目标绑定")
+    }
+
+    /// Mac 唤醒：仅记录；目标重选由手机重连后驱动。
+    func handleSystemDidWake() {
+        delegate?.sessionDidLog("system did wake: 等待手机重连并重新选目标")
+    }
+
     // MARK: - 消息处理
 
     private func handleHello(_ conn: Connection, data: Data) {
@@ -250,7 +266,7 @@ final class SessionManager: ServerDelegate {
             switch result {
             case .applied(let method):
                 self.lock.lock(); self.revisionGate.markApplied(targetId, revision: revision); self.lock.unlock()
-                self.delegate?.sessionDidLog("text_applied \(targetId.rawValue) rev=\(revision) len=\(text.count) via=\(method)")
+                self.delegate?.sessionDidLog("text_applied \(targetId.rawValue) rev=\(revision) \(DiagnosticsLog.textDigest(text)) via=\(method)")
                 self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
                                                revision: revision, applied: true, errorCode: nil))
             case .failed(let m):

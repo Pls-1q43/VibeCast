@@ -10,8 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     private let defaultPort: UInt16 = 8787
 
     private var pairedCount = 0
-    private var logLines: [String] = []
-    private let maxLogLines = 200
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -34,6 +32,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             self?.rebuildMenu()
         }
+
+        registerSleepWakeObservers()
+    }
+
+    // MARK: - 睡眠/唤醒（PRD 16.5）
+
+    private func registerSleepWakeObservers() {
+        let nc = NSWorkspace.shared.notificationCenter
+        nc.addObserver(self, selector: #selector(systemWillSleep),
+                       name: NSWorkspace.willSleepNotification, object: nil)
+        nc.addObserver(self, selector: #selector(systemDidWake),
+                       name: NSWorkspace.didWakeNotification, object: nil)
+    }
+
+    @objc private func systemWillSleep() {
+        session.handleSystemWillSleep()
+    }
+
+    @objc private func systemDidWake() {
+        session.handleSystemDidWake()
     }
 
     // MARK: - Server 生命周期
@@ -154,10 +172,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     @objc private func showLog() {
         let alert = NSAlert()
         alert.messageText = "VibeCast 诊断日志"
-        alert.informativeText = logLines.suffix(40).joined(separator: "\n")
+        alert.informativeText = DiagnosticsLog.shared.snapshot(maxTail: 40).joined(separator: "\n")
+        alert.addButton(withTitle: "导出诊断包…")
         alert.addButton(withTitle: "关闭")
         NSApp.activate(ignoringOtherApps: true)
-        alert.runModal()
+        if alert.runModal() == .alertFirstButtonReturn {
+            exportDiagnostics()
+        }
+    }
+
+    private func exportDiagnostics() {
+        guard let url = DiagnosticsLog.shared.export() else {
+            log("诊断包导出失败")
+            return
+        }
+        // 在 Finder 中选中导出的脱敏诊断包。
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+        log("诊断包已导出: \(url.lastPathComponent)")
     }
 
     @objc private func quit() {
@@ -165,14 +196,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         NSApp.terminate(nil)
     }
 
-    // MARK: - 日志
+    // MARK: - 日志（统一走脱敏 DiagnosticsLog）
 
     private func log(_ line: String) {
-        let stamp = ISO8601DateFormatter().string(from: Date())
-        let entry = "[\(stamp)] \(line)"
-        logLines.append(entry)
-        if logLines.count > maxLogLines { logLines.removeFirst(logLines.count - maxLogLines) }
-        FileHandle.standardError.write(Data((entry + "\n").utf8))
+        DiagnosticsLog.shared.log(line)
     }
 
     // MARK: - SessionManagerDelegate
