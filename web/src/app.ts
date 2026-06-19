@@ -3,7 +3,7 @@
 
 import { TARGET_IDS, type TargetId, type ServerMessage } from "./ws/protocol.ts";
 import { WSClient, type ConnectionState } from "./ws/client.ts";
-import { DraftStore, getClientId } from "./store/draftStore.ts";
+import { DraftStore, getClientId, uuid } from "./store/draftStore.ts";
 import { IMEController } from "./ime/imeController.ts";
 import { Card } from "./ui/card.ts";
 import type { SyncStatus } from "./ui/status.ts";
@@ -112,7 +112,7 @@ export class App {
     for (const [id, card] of this.cards) card.setSelected(id === targetId);
 
     // 新建会话
-    const sessionId = crypto.randomUUID();
+    const sessionId = uuid();
     this.sessions.set(targetId, sessionId);
     this.targetFocused.set(targetId, false);
 

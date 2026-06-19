@@ -1,5 +1,24 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { DraftStore } from "./draftStore.ts";
+import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { DraftStore, uuid } from "./draftStore.ts";
+
+describe("uuid fallback (non-secure context)", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("returns a valid v4 uuid via crypto.randomUUID when available", () => {
+    expect(uuid()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  it("does not throw when crypto.randomUUID is missing (http LAN context)", () => {
+    // 模拟 http://<ip> 非安全上下文：randomUUID 不存在，仅有 getRandomValues。
+    vi.stubGlobal("crypto", {
+      getRandomValues: (arr: Uint8Array) => {
+        for (let i = 0; i < arr.length; i++) arr[i] = i;
+        return arr;
+      },
+    });
+    expect(uuid()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+});
 
 describe("DraftStore", () => {
   beforeEach(() => {
