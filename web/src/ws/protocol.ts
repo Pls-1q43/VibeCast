@@ -83,7 +83,11 @@ export type ClientMessage =
   | TextSnapshotMessage
   | SendMessage
   | ClearMessage
-  | PingMessage;
+  | PingMessage
+  | GetConfigMessage
+  | SetConfigMessage
+  | TestTargetMessage
+  | ListRunningAppsMessage;
 
 // ---- Mac → 手机 ----
 
@@ -140,13 +144,72 @@ export interface PongMessage {
   t: number;
 }
 
+// ---- 配置相关 ----
+
+export interface TargetProfile {
+  displayName: string;
+  bundleId: string;
+  activationMode: "bundle_id";
+  launchIfNotRunning: boolean;
+  focusMode: "shortcut" | "accessibility" | "preserve_last_focus" | "custom";
+  focusShortcut: { modifiers: string[]; key: string } | null;
+  focusWaitMs: number;
+  sendMode: "key" | "custom_shortcut" | "accessibility_button" | "none";
+  sendShortcut: { modifiers: string[]; key: string } | null;
+  sendButtonTitleContains: string | null;
+  clearAfterSend: boolean;
+  allowEmpty: boolean;
+  keepForeground: boolean;
+  maxTextLength: number;
+  allowSelectAllReplace: boolean;
+}
+
+export interface GetConfigMessage {
+  type: "get_config";
+}
+export interface SetConfigMessage {
+  type: "set_config";
+  targetId: TargetId;
+  profile: TargetProfile;
+}
+export interface TestTargetMessage {
+  type: "test_target";
+  targetId: TargetId;
+}
+export interface ListRunningAppsMessage {
+  type: "list_running_apps";
+}
+
+export interface ConfigMessage {
+  type: "config";
+  profiles: Record<string, TargetProfile>;
+}
+export interface TestResultMessage {
+  type: "test_result";
+  targetId: TargetId;
+  success: boolean;
+  errorCode: ErrorCode | null;
+  message: string | null;
+}
+export interface RunningApp {
+  bundleId: string;
+  name: string;
+}
+export interface RunningAppsMessage {
+  type: "running_apps";
+  apps: RunningApp[];
+}
+
 export type ServerMessage =
   | HelloAckMessage
   | TargetStatusMessage
   | TextAckMessage
   | SendResultMessage
   | ErrorMessage
-  | PongMessage;
+  | PongMessage
+  | ConfigMessage
+  | TestResultMessage
+  | RunningAppsMessage;
 
 export function isServerMessage(v: unknown): v is ServerMessage {
   return typeof v === "object" && v !== null && typeof (v as { type?: unknown }).type === "string";

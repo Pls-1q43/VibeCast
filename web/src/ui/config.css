@@ -1,0 +1,41 @@
+.cfg-title {
+  font-size: 20px;
+  margin: 4px 0 8px;
+}
+
+.cfg-status {
+  font-size: 13px;
+  color: var(--text-dim);
+  padding: 6px 0;
+}
+
+.cfg-card {
+  border-color: var(--border);
+}
+
+.cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.cfg-field input[type="text"],
+.cfg-field input[type="number"],
+.cfg-field select {
+  font-size: 16px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.cfg-field input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  align-self: flex-start;
+}

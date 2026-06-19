@@ -7,6 +7,12 @@ protocol SessionManagerDelegate: AnyObject {
     /// 已配对连接数变化（用于菜单栏显示）。
     func sessionPairedCountChanged(_ count: Int)
     func sessionDidLog(_ line: String)
+    /// 配置被更新（菜单栏可刷新目标显示名等）。
+    func sessionConfigChanged()
+}
+
+extension SessionManagerDelegate {
+    func sessionConfigChanged() {}
 }
 
 final class SessionManager: ServerDelegate {
@@ -70,6 +76,14 @@ final class SessionManager: ServerDelegate {
             handleClear(conn, data: data)
         case "send":
             handleSend(conn, data: data)
+        case "get_config":
+            handleGetConfig(conn)
+        case "set_config":
+            handleSetConfig(conn, data: data)
+        case "test_target":
+            handleTestTarget(conn, data: data)
+        case "list_running_apps":
+            handleListRunningApps(conn)
         default:
             sendError(conn, code: .badMessage, message: "未知消息类型: \(type)")
         }
@@ -262,7 +276,8 @@ final class SessionManager: ServerDelegate {
                 return
             }
 
-            let result = TextWriter.write(text, to: binding)
+            let allowSelectAll = self.config.profile(targetId).allowSelectAllReplace
+            let result = TextWriter.write(text, to: binding, allowSelectAllReplace: allowSelectAll)
             switch result {
             case .applied(let method):
                 self.lock.lock(); self.revisionGate.markApplied(targetId, revision: revision); self.lock.unlock()
@@ -356,6 +371,76 @@ final class SessionManager: ServerDelegate {
                                                   revision: revision, success: false, errorCode: .sendFailed, message: m))
             }
         }
+    }
+
+    // MARK: - 配置读写（PRD 20）
+
+    private func handleGetConfig(_ conn: Connection) {
+        var dict: [String: TargetProfile] = [:]
+        for id in TargetId.allCases { dict[id.rawValue] = config.profile(id) }
+        send(conn, ConfigMessage(profiles: dict))
+    }
+
+    private func handleSetConfig(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(SetConfigMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "set_config 结构错误")
+            return
+        }
+        config.update(msg.targetId, msg.profile)
+        delegate?.sessionDidLog("config updated \(msg.targetId.rawValue) bundleId=\(msg.profile.bundleId.isEmpty ? "<empty>" : msg.profile.bundleId)")
+        // 回写最新全量配置，便于配置页确认。
+        handleGetConfig(conn)
+        delegate?.sessionConfigChanged()
+    }
+
+    /// 测试目标：激活→聚焦→写测试文本→不发送→回结果（PRD 20）。
+    private func handleTestTarget(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(TestTargetMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "test_target 结构错误")
+            return
+        }
+        guard AccessibilityPermission.isGranted else {
+            send(conn, TestResultMessage(targetId: msg.targetId, success: false,
+                                         errorCode: .noAccessibilityPermission, message: "Mac 缺少辅助功能权限"))
+            return
+        }
+        let profile = config.profile(msg.targetId)
+        let testSessionId = "test-\(UUID().uuidString)"
+        focusQueue.async { [weak self, weak conn] in
+            guard let self, let conn else { return }
+            let outcome = FocusController.focus(targetId: msg.targetId, sessionId: testSessionId, profile: profile)
+            switch outcome {
+            case .focused(let binding):
+                let result = TextWriter.write("VibeCast 测试文本（不会发送）", to: binding, allowSelectAllReplace: profile.allowSelectAllReplace)
+                switch result {
+                case .applied(let method):
+                    self.delegate?.sessionDidLog("test_target \(msg.targetId.rawValue) ok via=\(method)")
+                    self.send(conn, TestResultMessage(targetId: msg.targetId, success: true,
+                                                      errorCode: nil, message: "已写入测试文本（via=\(method)），未执行发送"))
+                case .failed(let m):
+                    self.send(conn, TestResultMessage(targetId: msg.targetId, success: false,
+                                                      errorCode: .writeFailed, message: m))
+                }
+            case .appNotRunning:
+                self.send(conn, TestResultMessage(targetId: msg.targetId, success: false,
+                                                  errorCode: .appNotRunning, message: "应用未运行"))
+            case .appLaunchFailed(let m):
+                self.send(conn, TestResultMessage(targetId: msg.targetId, success: false,
+                                                  errorCode: .appLaunchFailed, message: m))
+            case .noPermission:
+                self.send(conn, TestResultMessage(targetId: msg.targetId, success: false,
+                                                  errorCode: .noAccessibilityPermission, message: "Mac 缺少辅助功能权限"))
+            case .notFocused(let m):
+                self.send(conn, TestResultMessage(targetId: msg.targetId, success: false,
+                                                  errorCode: .targetNotFocused, message: m))
+            }
+        }
+    }
+
+    /// 列出当前运行的可见应用（供配置页选择 Bundle ID，PRD 8）。
+    private func handleListRunningApps(_ conn: Connection) {
+        let apps = RunningAppsProvider.visibleApps()
+        send(conn, RunningAppsMessage(apps: apps))
     }
 
     // MARK: - 发送辅助

@@ -120,6 +120,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             menu.addItem(permItem)
         }
 
+        let configItem = NSMenuItem(title: "打开配置页面…", action: #selector(openConfigPage), keyEquivalent: ",")
+        configItem.target = self
+        menu.addItem(configItem)
+
         let restartItem = NSMenuItem(title: "重启服务", action: #selector(restart), keyEquivalent: "r")
         restartItem.target = self
         menu.addItem(restartItem)
@@ -131,6 +135,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         let regenItem = NSMenuItem(title: "重新生成配对令牌", action: #selector(regenToken), keyEquivalent: "")
         regenItem.target = self
         menu.addItem(regenItem)
+
+        let loginItem = NSMenuItem(title: "登录时自动启动", action: #selector(toggleLoginItem), keyEquivalent: "")
+        loginItem.target = self
+        loginItem.state = LoginItem.isEnabled ? .on : .off
+        menu.addItem(loginItem)
 
         menu.addItem(.separator())
         let quitItem = NSMenuItem(title: "退出 VibeCast", action: #selector(quit), keyEquivalent: "q")
@@ -167,6 +176,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         Pairing.regenerate()
         log("已重新生成配对令牌，旧设备需重新配对")
         rebuildMenu()
+    }
+
+    @objc private func toggleLoginItem() {
+        LoginItem.toggle()
+        log("开机自启：\(LoginItem.isEnabled ? "已开启" : "已关闭")")
+        rebuildMenu()
+    }
+
+    @objc private func openConfigPage() {
+        guard let ip = NetworkInfo.primaryLANAddress() else {
+            log("无法打开配置页：未检测到局域网地址")
+            return
+        }
+        let urlStr = "http://\(ip):\(defaultPort)/config.html?token=\(Pairing.token)"
+        if let url = URL(string: urlStr) {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func showLog() {
@@ -214,5 +240,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     func sessionDidLog(_ line: String) {
         DispatchQueue.main.async { self.log(line) }
+    }
+
+    func sessionConfigChanged() {
+        DispatchQueue.main.async { self.rebuildMenu() }
     }
 }

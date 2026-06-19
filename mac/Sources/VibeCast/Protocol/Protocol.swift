@@ -84,6 +84,26 @@ struct PingMessage: Codable, Sendable {
     let t: Int64
 }
 
+// 配置相关（手机配置页 → Mac）
+struct GetConfigMessage: Codable, Sendable {
+    let type: String
+}
+
+struct SetConfigMessage: Codable, Sendable {
+    let type: String
+    let targetId: TargetId
+    let profile: TargetProfile
+}
+
+struct TestTargetMessage: Codable, Sendable {
+    let type: String
+    let targetId: TargetId
+}
+
+struct ListRunningAppsMessage: Codable, Sendable {
+    let type: String
+}
+
 // MARK: - Mac → 手机
 
 struct TargetInfo: Codable, Sendable {
@@ -137,6 +157,30 @@ struct ErrorMessage: Codable, Sendable {
 struct PongMessage: Codable, Sendable {
     var type = "pong"
     let t: Int64
+}
+
+// 配置相关（Mac → 手机配置页）
+struct ConfigMessage: Codable, Sendable {
+    var type = "config"
+    let profiles: [String: TargetProfile] // key = targetId.rawValue
+}
+
+struct TestResultMessage: Codable, Sendable {
+    var type = "test_result"
+    let targetId: TargetId
+    let success: Bool
+    let errorCode: ErrorCode?
+    let message: String?
+}
+
+struct RunningApp: Codable, Sendable {
+    let bundleId: String
+    let name: String
+}
+
+struct RunningAppsMessage: Codable, Sendable {
+    var type = "running_apps"
+    let apps: [RunningApp]
 }
 
 // MARK: - 解码分发

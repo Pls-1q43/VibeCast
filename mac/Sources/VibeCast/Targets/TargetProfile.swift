@@ -46,6 +46,9 @@ struct TargetProfile: Codable {
     var allowEmpty: Bool
     var keepForeground: Bool
     var maxTextLength: Int
+    /// 是否允许剪贴板降级时执行 Cmd+A 全选替换。
+    /// Notion 当前文本块模式必须为 false，避免误全选整页文档（PRD 14.2）。
+    var allowSelectAllReplace: Bool
 
     static func defaultFor(_ id: TargetId) -> TargetProfile {
         let name = id.rawValue.capitalized
@@ -57,14 +60,16 @@ struct TargetProfile: Codable {
                 launchIfNotRunning: false, focusMode: .preserveLastFocus, focusShortcut: nil,
                 focusWaitMs: 300, sendMode: .noneSyncOnly, sendShortcut: nil,
                 sendButtonTitleContains: nil,
-                clearAfterSend: false, allowEmpty: false, keepForeground: false, maxTextLength: 10000)
+                clearAfterSend: false, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
+                allowSelectAllReplace: false) // Notion 文本块模式：禁止全选替换整页（PRD 14.2）
         default:
             return TargetProfile(
                 displayName: name, bundleId: "", activationMode: .bundleId,
                 launchIfNotRunning: true, focusMode: .shortcut, focusShortcut: nil,
                 focusWaitMs: 250, sendMode: .key, sendShortcut: .enter,
                 sendButtonTitleContains: nil,
-                clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000)
+                clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
+                allowSelectAllReplace: true)
         }
     }
 }

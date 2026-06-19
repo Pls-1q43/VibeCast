@@ -16,7 +16,9 @@ enum WriteResult {
 enum TextWriter {
 
     /// 把完整文本写入已校验有效的绑定目标。调用方必须先 FocusController.validate 通过。
-    static func write(_ text: String, to binding: TargetBinding) -> WriteResult {
+    /// - allowSelectAllReplace: 剪贴板降级时是否允许 Cmd+A 全选替换。
+    ///   Notion 文本块模式必须为 false，避免误全选整页（PRD 14.2）。
+    static func write(_ text: String, to binding: TargetBinding, allowSelectAllReplace: Bool = true) -> WriteResult {
         // 长度护栏由上层 Profile 控制；此处再次防御空指针等。
         if AXSupport.isValueSettable(binding.element) {
             if AXSupport.setValue(binding.element, text) {
@@ -27,6 +29,10 @@ enum TextWriter {
                 }
                 // 直写未生效，落入剪贴板降级。
             }
+        }
+        // AXValue 直写失败且不允许全选替换：拒绝，绝不冒险全选整页（PRD 14.2）。
+        guard allowSelectAllReplace else {
+            return .failed("AXValue 直写失败且该目标禁止全选替换（保护整页文档）")
         }
         return writeViaClipboard(text, to: binding)
     }
