@@ -59,4 +59,27 @@ enum AXSupport {
     static func value(of element: AXUIElement) -> String? {
         stringAttr(element, kAXValueAttribute)
     }
+
+    /// AXValue 是否可直接设置。
+    static func isValueSettable(_ element: AXUIElement) -> Bool {
+        var settable = DarwinBoolean(false)
+        guard AXUIElementIsAttributeSettable(element, kAXValueAttribute as CFString, &settable) == .success else {
+            return false
+        }
+        return settable.boolValue
+    }
+
+    /// 直接设置元素文本值（AXValue 直写）。返回是否成功。
+    @discardableResult
+    static func setValue(_ element: AXUIElement, _ text: String) -> Bool {
+        AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFTypeRef) == .success
+    }
+
+    /// 设置选区（写入后把光标放到末尾，避免后续操作位置异常）。
+    static func setSelectionToEnd(_ element: AXUIElement, length: Int) {
+        let range = CFRangeMake(length, 0)
+        if let axValue = AXValueCreate(.cfRange, withUnsafePointer(to: range, { $0 })) {
+            AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue)
+        }
+    }
 }

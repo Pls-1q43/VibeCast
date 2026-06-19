@@ -26,6 +26,8 @@ final class SessionManager: ServerDelegate {
     private var activeControllerId: UUID?
     /// 当前活动目标绑定（仅一个，PRD 12.2）。
     private var activeBinding: TargetBinding?
+    /// 每目标已应用的最高 revision（旧版本丢弃，PRD 12.1）。
+    private var revisionGate = RevisionGate()
     private let lock = NSLock()
 
     init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore()) {
@@ -60,9 +62,13 @@ final class SessionManager: ServerDelegate {
             }
         case "select_target":
             handleSelectTarget(conn, data: data)
-        case "text_snapshot", "send", "clear":
-            // 文本写入/发送在 M4/M5 接入。M3 阶段：校验绑定后回当前聚焦状态，不写文本。
-            handleTextStub(conn, type: type, data: data)
+        case "text_snapshot":
+            handleTextSnapshot(conn, data: data)
+        case "clear":
+            handleClear(conn, data: data)
+        case "send":
+            // 两阶段发送在 M5 接入；M4 阶段先确保最终快照已写入。
+            handleSendStub(conn, data: data)
         default:
             sendError(conn, code: .badMessage, message: "未知消息类型: \(type)")
         }
@@ -150,7 +156,11 @@ final class SessionManager: ServerDelegate {
             let status: TargetStatusMessage
             switch outcome {
             case .focused(let binding):
-                self.lock.lock(); self.activeBinding = binding; self.lock.unlock()
+                // 新会话：重置该目标已应用 revision，使新草稿的 rev 从头生效（PRD 12.3）。
+                self.lock.lock()
+                self.activeBinding = binding
+                self.revisionGate.reset(env.targetId)
+                self.lock.unlock()
                 self.delegate?.sessionDidLog("focused \(env.targetId.rawValue) pid=\(binding.pid) role=\(binding.role ?? "?")")
                 status = TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
                                              status: .focused, errorCode: nil, message: nil)
@@ -173,32 +183,91 @@ final class SessionManager: ServerDelegate {
         }
     }
 
-    /// M3 桩：文本/发送暂不写入；先校验当前绑定是否仍有效，给前端真实反馈。
-    private func handleTextStub(_ conn: Connection, type: String, data: Data) {
-        guard let env = try? ProtocolCodec.decoder.decode(TargetedEnvelope.self, from: data) else {
-            sendError(conn, code: .badMessage, message: "\(type) 结构错误")
+    /// 处理文本快照写入。PRD 6.3 / 10 / 12.1。
+    private func handleTextSnapshot(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(TextSnapshotMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "text_snapshot 结构错误")
             return
         }
-        lock.lock(); let binding = activeBinding; lock.unlock()
-        guard let binding, binding.targetId == env.targetId else {
-            send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
-                                           status: .notFocused, errorCode: .targetNotFocused,
-                                           message: "目标未聚焦"))
+        // 文本长度护栏（PRD 15.3）。
+        let maxLen = config.profile(msg.targetId).maxTextLength
+        if msg.text.count > maxLen {
+            send(conn, TextAckMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                      revision: msg.revision, applied: false, errorCode: .writeFailed))
             return
         }
-        // 后台校验绑定（含 AX 查询）。
+        applyText(conn, sessionId: msg.sessionId, targetId: msg.targetId,
+                  revision: msg.revision, text: msg.text)
+    }
+
+    /// 处理清空（同步空串，不发送）。PRD 5.7。
+    private func handleClear(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(ClearMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "clear 结构错误")
+            return
+        }
+        applyText(conn, sessionId: msg.sessionId, targetId: msg.targetId,
+                  revision: msg.revision, text: "")
+    }
+
+    /// 核心写入流程：Revision 校验 → 绑定校验 → TextWriter 写入 → text_ack。
+    private func applyText(_ conn: Connection, sessionId: String, targetId: TargetId, revision: Int, text: String) {
+        // 1) Revision 单调校验（旧包丢弃，PRD 12.1）。
+        lock.lock()
+        let shouldApply = revisionGate.shouldApply(targetId, revision: revision)
+        let binding = activeBinding
+        lock.unlock()
+
+        if !shouldApply {
+            send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                      revision: revision, applied: false, errorCode: .staleRevision))
+            return
+        }
+
+        // 2) 绑定存在且目标匹配？
+        guard let binding, binding.targetId == targetId else {
+            send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                      revision: revision, applied: false, errorCode: .targetNotFocused))
+            return
+        }
+
+        // 3) 后台执行绑定校验 + 写入（含 AX/剪贴板，耗时）。
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
-            if FocusController.validate(binding) {
-                // M4 将在此写入文本；M3 仅确认聚焦仍有效。
-                self.delegate?.sessionDidLog("\(type) binding-valid \(env.targetId.rawValue) (M4 写入待接入)")
-            } else {
+
+            guard FocusController.validate(binding) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
-                self.send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                self.send(conn, TargetStatusMessage(sessionId: sessionId, targetId: targetId,
                                                     status: .notFocused, errorCode: .targetNotFocused,
                                                     message: "目标失焦"))
+                self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                               revision: revision, applied: false, errorCode: .targetNotFocused))
+                return
+            }
+
+            let result = TextWriter.write(text, to: binding)
+            switch result {
+            case .applied(let method):
+                self.lock.lock(); self.revisionGate.markApplied(targetId, revision: revision); self.lock.unlock()
+                self.delegate?.sessionDidLog("text_applied \(targetId.rawValue) rev=\(revision) len=\(text.count) via=\(method)")
+                self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                               revision: revision, applied: true, errorCode: nil))
+            case .failed(let m):
+                self.delegate?.sessionDidLog("text_write_failed \(targetId.rawValue) rev=\(revision): \(m)")
+                self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                               revision: revision, applied: false, errorCode: .writeFailed))
             }
         }
+    }
+
+    /// M4 桩：发送先把最终快照写入；提交动作在 M5 接入。
+    private func handleSendStub(_ conn: Connection, data: Data) {
+        guard let env = try? ProtocolCodec.decoder.decode(TargetedEnvelope.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "send 结构错误")
+            return
+        }
+        // M5 将实现：确认 revision 已应用 → 重新校验 → 执行发送动作 → send_result。
+        self.delegate?.sessionDidLog("send received \(env.targetId.rawValue) (M5 提交待接入)")
     }
 
     // MARK: - 发送辅助
