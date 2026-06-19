@@ -28,6 +28,8 @@ final class SessionManager: ServerDelegate {
     private var activeBinding: TargetBinding?
     /// 每目标已应用的最高 revision（旧版本丢弃，PRD 12.1）。
     private var revisionGate = RevisionGate()
+    /// 发送决策与幂等去重（PRD 11.4 / 16.6）。
+    private var sendGate = SendGate()
     private let lock = NSLock()
 
     init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore()) {
@@ -67,8 +69,7 @@ final class SessionManager: ServerDelegate {
         case "clear":
             handleClear(conn, data: data)
         case "send":
-            // 两阶段发送在 M5 接入；M4 阶段先确保最终快照已写入。
-            handleSendStub(conn, data: data)
+            handleSend(conn, data: data)
         default:
             sendError(conn, code: .badMessage, message: "未知消息类型: \(type)")
         }
@@ -260,14 +261,85 @@ final class SessionManager: ServerDelegate {
         }
     }
 
-    /// M4 桩：发送先把最终快照写入；提交动作在 M5 接入。
-    private func handleSendStub(_ conn: Connection, data: Data) {
-        guard let env = try? ProtocolCodec.decoder.decode(TargetedEnvelope.self, from: data) else {
+    /// 两阶段发送。PRD 3.3 / 11.4 / 13 / 16.6。
+    private func handleSend(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(SendRequestMessage.self, from: data) else {
             sendError(conn, code: .badMessage, message: "send 结构错误")
             return
         }
-        // M5 将实现：确认 revision 已应用 → 重新校验 → 执行发送动作 → send_result。
-        self.delegate?.sessionDidLog("send received \(env.targetId.rawValue) (M5 提交待接入)")
+        let targetId = msg.targetId
+        let revision = msg.revision
+
+        lock.lock()
+        let decision = sendGate.decide(sessionId: msg.sessionId, targetId: targetId,
+                                       revision: revision, appliedRevision: revisionGate.current(targetId))
+        let binding = activeBinding
+        lock.unlock()
+
+        switch decision {
+        case .duplicate:
+            // 幂等：同一 session+target+revision 不重复提交（PRD 16.6）。
+            send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                         revision: revision, success: true, errorCode: nil,
+                                         message: "已发送（幂等命中）"))
+            return
+        case .staleRevision:
+            // 第一阶段：最终 revision 尚未写入，拒绝发送（PRD 11.4）。
+            send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                         revision: revision, success: false, errorCode: .staleRevision,
+                                         message: "最终文本尚未同步完成"))
+            return
+        case .proceed:
+            break
+        }
+
+        // 绑定存在且匹配？
+        guard let binding, binding.targetId == targetId else {
+            send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                         revision: revision, success: false, errorCode: .targetNotFocused,
+                                         message: "目标未聚焦"))
+            return
+        }
+
+        let profile = config.profile(targetId)
+
+        // 第二阶段：后台重新校验绑定 → 执行发送动作。
+        focusQueue.async { [weak self, weak conn] in
+            guard let self, let conn else { return }
+
+            guard FocusController.validate(binding) else {
+                self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
+                self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                                  revision: revision, success: false, errorCode: .targetNotFocused,
+                                                  message: "发送前目标已失焦"))
+                return
+            }
+
+            let result = SendAction.perform(profile: profile, binding: binding)
+            switch result {
+            case .sent:
+                // 标记幂等键，发送动作只执行一次（PRD 13 / 16.6）。
+                self.lock.lock(); self.sendGate.markCommitted(sessionId: msg.sessionId, targetId: targetId, revision: revision); self.lock.unlock()
+                self.delegate?.sessionDidLog("sent \(targetId.rawValue) rev=\(revision) mode=\(profile.sendMode.rawValue)")
+                self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                                  revision: revision, success: true, errorCode: nil, message: nil))
+            case .skipped(let m):
+                // 仅同步模式：视为成功（手机端「发送」实为「完成」，PRD 14.2）。
+                self.lock.lock(); self.sendGate.markCommitted(sessionId: msg.sessionId, targetId: targetId, revision: revision); self.lock.unlock()
+                self.delegate?.sessionDidLog("send-skip \(targetId.rawValue): \(m)")
+                self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                                  revision: revision, success: true, errorCode: nil, message: m))
+            case .unknown(let m):
+                // 无法确认是否已发送：不标记幂等、不自动重试（PRD 13）。
+                self.delegate?.sessionDidLog("send-unknown \(targetId.rawValue): \(m)")
+                self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                                  revision: revision, success: false, errorCode: .sendUnknown, message: m))
+            case .failed(let m):
+                self.delegate?.sessionDidLog("send-failed \(targetId.rawValue): \(m)")
+                self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                                  revision: revision, success: false, errorCode: .sendFailed, message: m))
+            }
+        }
     }
 
     // MARK: - 发送辅助

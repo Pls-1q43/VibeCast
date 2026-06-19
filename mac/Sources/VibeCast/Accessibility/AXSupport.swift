@@ -82,4 +82,33 @@ enum AXSupport {
             AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue)
         }
     }
+
+    /// 在某进程窗口树中查找标题包含给定文本的按钮并按下（AXPress）。
+    /// 仅遍历有限深度，避免在复杂界面上无限递归。返回是否成功按下。
+    static func pressButton(pid: pid_t, titleContains: String, maxDepth: Int = 12) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        guard let button = findButton(in: app, titleContains: titleContains, depth: maxDepth) else {
+            return false
+        }
+        return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+    }
+
+    private static func findButton(in element: AXUIElement, titleContains: String, depth: Int) -> AXUIElement? {
+        if depth < 0 { return nil }
+        if role(of: element) == (kAXButtonRole as String) {
+            let title = stringAttr(element, kAXTitleAttribute) ?? stringAttr(element, kAXDescriptionAttribute) ?? ""
+            if title.contains(titleContains) { return element }
+        }
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+        for child in children {
+            if let found = findButton(in: child, titleContains: titleContains, depth: depth - 1) {
+                return found
+            }
+        }
+        return nil
+    }
 }

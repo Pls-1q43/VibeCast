@@ -40,6 +40,8 @@ struct TargetProfile: Codable {
     var focusWaitMs: Int
     var sendMode: SendMode
     var sendShortcut: KeyShortcut?
+    /// accessibilityButton 模式下，按钮标题包含的文本（如 "发送"）。
+    var sendButtonTitleContains: String?
     var clearAfterSend: Bool
     var allowEmpty: Bool
     var keepForeground: Bool
@@ -54,12 +56,14 @@ struct TargetProfile: Codable {
                 displayName: name, bundleId: "", activationMode: .bundleId,
                 launchIfNotRunning: false, focusMode: .preserveLastFocus, focusShortcut: nil,
                 focusWaitMs: 300, sendMode: .noneSyncOnly, sendShortcut: nil,
+                sendButtonTitleContains: nil,
                 clearAfterSend: false, allowEmpty: false, keepForeground: false, maxTextLength: 10000)
         default:
             return TargetProfile(
                 displayName: name, bundleId: "", activationMode: .bundleId,
                 launchIfNotRunning: true, focusMode: .shortcut, focusShortcut: nil,
                 focusWaitMs: 250, sendMode: .key, sendShortcut: .enter,
+                sendButtonTitleContains: nil,
                 clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000)
         }
     }
