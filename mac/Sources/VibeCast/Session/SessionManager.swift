@@ -138,8 +138,13 @@ final class SessionManager: ServerDelegate {
 
         lock.lock()
         paired[conn.id] = conn
-        // 单一活动会话：首个配对连接成为活动控制端。
-        if activeControllerId == nil { activeControllerId = conn.id }
+        // 单一活动会话（PRD 12.2）：最新完成握手的连接接管控制权。
+        // 单用户场景下，用户最后打开/重连的页面即其想操作的会话；
+        // 旧连接（可能是残留/已切后台的标签页）让出控制，避免新页面被 RATE_LIMITED 卡死。
+        let previousActive = activeControllerId
+        activeControllerId = conn.id
+        // 接管控制权 → 旧绑定失效，等新会话重新选目标。
+        if previousActive != conn.id { activeBinding = nil }
         let count = paired.count
         lock.unlock()
 
