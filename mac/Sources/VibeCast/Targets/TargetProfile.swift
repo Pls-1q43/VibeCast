@@ -8,6 +8,13 @@ enum ActivationMode: String, Codable {
     case bundleId = "bundle_id"
 }
 
+/// 文本写入策略。
+enum WriteMode: String, Codable {
+    case auto            // 先 AXValue 直写，失败按 allowSelectAllReplace 决定是否剪贴板全选替换
+    case axValue = "axvalue"        // 仅 AXValue 直写
+    case clipboardPaste = "clipboard_paste" // 仅"粘贴到当前光标"（不全选）——适用 Electron/contenteditable
+}
+
 enum FocusMode: String, Codable {
     case shortcut          // 策略一：应用快捷键
     case accessibility     // 策略二：AX 查找输入控件（M3-2 实现）
@@ -49,19 +56,61 @@ struct TargetProfile: Codable {
     /// 是否允许剪贴板降级时执行 Cmd+A 全选替换。
     /// Notion 当前文本块模式必须为 false，避免误全选整页文档（PRD 14.2）。
     var allowSelectAllReplace: Bool
+    /// 文本写入策略。Electron/contenteditable（如 Notion AI 对话框）用 clipboardPaste。
+    var writeMode: WriteMode
+
+    // 向后兼容：旧配置文件无 writeMode 时默认 .auto。
+    enum CodingKeys: String, CodingKey {
+        case displayName, bundleId, activationMode, launchIfNotRunning, focusMode, focusShortcut
+        case focusWaitMs, sendMode, sendShortcut, sendButtonTitleContains, clearAfterSend
+        case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode
+    }
+
+    init(displayName: String, bundleId: String, activationMode: ActivationMode, launchIfNotRunning: Bool,
+         focusMode: FocusMode, focusShortcut: KeyShortcut?, focusWaitMs: Int, sendMode: SendMode,
+         sendShortcut: KeyShortcut?, sendButtonTitleContains: String?, clearAfterSend: Bool,
+         allowEmpty: Bool, keepForeground: Bool, maxTextLength: Int, allowSelectAllReplace: Bool,
+         writeMode: WriteMode) {
+        self.displayName = displayName; self.bundleId = bundleId; self.activationMode = activationMode
+        self.launchIfNotRunning = launchIfNotRunning; self.focusMode = focusMode; self.focusShortcut = focusShortcut
+        self.focusWaitMs = focusWaitMs; self.sendMode = sendMode; self.sendShortcut = sendShortcut
+        self.sendButtonTitleContains = sendButtonTitleContains; self.clearAfterSend = clearAfterSend
+        self.allowEmpty = allowEmpty; self.keepForeground = keepForeground; self.maxTextLength = maxTextLength
+        self.allowSelectAllReplace = allowSelectAllReplace; self.writeMode = writeMode
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        bundleId = try c.decode(String.self, forKey: .bundleId)
+        activationMode = try c.decode(ActivationMode.self, forKey: .activationMode)
+        launchIfNotRunning = try c.decode(Bool.self, forKey: .launchIfNotRunning)
+        focusMode = try c.decode(FocusMode.self, forKey: .focusMode)
+        focusShortcut = try c.decodeIfPresent(KeyShortcut.self, forKey: .focusShortcut)
+        focusWaitMs = try c.decode(Int.self, forKey: .focusWaitMs)
+        sendMode = try c.decode(SendMode.self, forKey: .sendMode)
+        sendShortcut = try c.decodeIfPresent(KeyShortcut.self, forKey: .sendShortcut)
+        sendButtonTitleContains = try c.decodeIfPresent(String.self, forKey: .sendButtonTitleContains)
+        clearAfterSend = try c.decode(Bool.self, forKey: .clearAfterSend)
+        allowEmpty = try c.decode(Bool.self, forKey: .allowEmpty)
+        keepForeground = try c.decode(Bool.self, forKey: .keepForeground)
+        maxTextLength = try c.decode(Int.self, forKey: .maxTextLength)
+        allowSelectAllReplace = try c.decode(Bool.self, forKey: .allowSelectAllReplace)
+        writeMode = try c.decodeIfPresent(WriteMode.self, forKey: .writeMode) ?? .auto
+    }
 
     static func defaultFor(_ id: TargetId) -> TargetProfile {
         let name = id.rawValue.capitalized
         switch id {
         case .notion:
-            // Notion 默认当前文本块模式：仅同步、不自动发送（PRD 14.2）。
+            // Notion 默认面向 AI 对话框：恢复上次焦点 + 粘贴到光标（不全选）+ 仅同步不发送。
             return TargetProfile(
                 displayName: name, bundleId: "", activationMode: .bundleId,
                 launchIfNotRunning: false, focusMode: .preserveLastFocus, focusShortcut: nil,
                 focusWaitMs: 300, sendMode: .noneSyncOnly, sendShortcut: nil,
                 sendButtonTitleContains: nil,
                 clearAfterSend: false, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
-                allowSelectAllReplace: false) // Notion 文本块模式：禁止全选替换整页（PRD 14.2）
+                allowSelectAllReplace: false, writeMode: .clipboardPaste)
         default:
             return TargetProfile(
                 displayName: name, bundleId: "", activationMode: .bundleId,
@@ -69,7 +118,7 @@ struct TargetProfile: Codable {
                 focusWaitMs: 250, sendMode: .key, sendShortcut: .enter,
                 sendButtonTitleContains: nil,
                 clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
-                allowSelectAllReplace: true)
+                allowSelectAllReplace: true, writeMode: .auto)
         }
     }
 }

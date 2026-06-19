@@ -16,25 +16,37 @@ enum WriteResult {
 enum TextWriter {
 
     /// 把完整文本写入已校验有效的绑定目标。调用方必须先 FocusController.validate 通过。
-    /// - allowSelectAllReplace: 剪贴板降级时是否允许 Cmd+A 全选替换。
-    ///   Notion 文本块模式必须为 false，避免误全选整页（PRD 14.2）。
-    static func write(_ text: String, to binding: TargetBinding, allowSelectAllReplace: Bool = true) -> WriteResult {
-        // 长度护栏由上层 Profile 控制；此处再次防御空指针等。
-        if AXSupport.isValueSettable(binding.element) {
-            if AXSupport.setValue(binding.element, text) {
-                // 验证写入结果（部分控件 set 成功但值未变）。
-                if verify(binding.element, expects: text) {
+    /// - writeMode: 写入策略（auto / axValue / clipboardPaste）。
+    /// - allowSelectAllReplace: auto 模式下 AXValue 失败时是否允许 Cmd+A 全选替换。
+    static func write(_ text: String, to binding: TargetBinding,
+                      writeMode: WriteMode = .auto, allowSelectAllReplace: Bool = true) -> WriteResult {
+        switch writeMode {
+        case .clipboardPaste:
+            // Electron/contenteditable（如 Notion AI 对话框）：直接走"输入框内全选+粘贴"。
+            // Cmd+A 在已聚焦的单输入框内只选中该框内容，不会选中整页文档。
+            return writeViaClipboard(text, to: binding)
+
+        case .axValue:
+            if AXSupport.isValueSettable(binding.element), AXSupport.setValue(binding.element, text),
+               verify(binding.element, expects: text) {
+                AXSupport.setSelectionToEnd(binding.element, length: text.count)
+                return .applied(method: "axvalue")
+            }
+            return .failed("AXValue 直写失败（该目标限定 axvalue 模式）")
+
+        case .auto:
+            if AXSupport.isValueSettable(binding.element) {
+                if AXSupport.setValue(binding.element, text), verify(binding.element, expects: text) {
                     AXSupport.setSelectionToEnd(binding.element, length: text.count)
                     return .applied(method: "axvalue")
                 }
-                // 直写未生效，落入剪贴板降级。
             }
+            // AXValue 直写失败且不允许全选替换：拒绝，绝不冒险全选整页（PRD 14.2）。
+            guard allowSelectAllReplace else {
+                return .failed("AXValue 直写失败且该目标禁止全选替换（保护整页文档）")
+            }
+            return writeViaClipboard(text, to: binding)
         }
-        // AXValue 直写失败且不允许全选替换：拒绝，绝不冒险全选整页（PRD 14.2）。
-        guard allowSelectAllReplace else {
-            return .failed("AXValue 直写失败且该目标禁止全选替换（保护整页文档）")
-        }
-        return writeViaClipboard(text, to: binding)
     }
 
     private static func verify(_ element: AXUIElement, expects text: String) -> Bool {

@@ -196,6 +196,9 @@ function renderTargetForm(id: TargetId, profile: TargetProfile): HTMLElement {
   card.append(field("允许空文本", checkbox(p.allowEmpty, (v) => (p.allowEmpty = v))));
   card.append(field("保持目标前台", checkbox(p.keepForeground, (v) => (p.keepForeground = v))));
   card.append(field("允许全选替换(Notion 文本块应关闭)", checkbox(p.allowSelectAllReplace, (v) => (p.allowSelectAllReplace = v))));
+  card.append(field("写入方式(Notion/Electron 选 粘贴到光标)", select(p.writeMode ?? "auto", [
+    ["auto", "自动(原生应用)"], ["axvalue", "仅直写"], ["clipboard_paste", "粘贴到光标(Electron/Notion)"],
+  ], (v) => (p.writeMode = v as TargetProfile["writeMode"]))));
   card.append(field("最大文本长度", numberInput(p.maxTextLength, (v) => (p.maxTextLength = v))));
 
   const actions = document.createElement("div");

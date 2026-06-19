@@ -162,6 +162,7 @@ export interface TargetProfile {
   keepForeground: boolean;
   maxTextLength: number;
   allowSelectAllReplace: boolean;
+  writeMode?: "auto" | "axvalue" | "clipboard_paste";
 }
 
 export interface GetConfigMessage {
