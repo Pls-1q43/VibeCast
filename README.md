@@ -22,16 +22,35 @@ Mac 服务：
 cd mac && swift build && swift test
 ```
 
+打包可分发 App（产物 `dist/VibeCast.app`）：
+```bash
+bash scripts/build_app.sh
+```
+
+## 测试
+
+```bash
+cd mac && swift test     # Swift 单元测试（40）
+cd web && npm test       # 前端单元测试（vitest，11）
+```
+
 > 注：若 npm 报 `genie-safe-delete` preload 错误，前面加 `NODE_OPTIONS=""`。
+
+## 文档
+
+- `docs/INSTALL.md` — 安装、授权、连接、使用、停止
+- `docs/CONFIGURATION.md` — 目标 Profile 字段与四应用建议
+- `docs/KNOWN_LIMITS.md` — 已知限制与安全边界
+- `docs/UNINSTALL.md` — 卸载
 
 ## 进度
 
-- [x] M0 项目骨架 + 协议定义（双端构建通过、协议单测通过）
-- [ ] M1 手机前端
-- [ ] M2 Mac 服务 + WebSocket
-- [ ] M3 应用激活 + 聚焦
-- [ ] M4 文本镜像
-- [ ] M5 两阶段发送
-- [ ] M6 健壮性
-- [ ] M7 配置 + 开机启动 + 四应用适配
-- [ ] M8 测试 + 联调 + 交付
+- [x] M0 项目骨架 + 协议定义
+- [x] M1 手机前端（四目标卡片 / 草稿 / 组合输入 / WS 客户端）
+- [x] M2 Mac 服务 + WebSocket + 配对 + 菜单栏
+- [x] M3 应用激活 + 聚焦 + 目标绑定校验
+- [x] M4 文本镜像（AXValue 直写 + 剪贴板降级 + Revision 校验）
+- [x] M5 两阶段发送 + 幂等
+- [x] M6 健壮性（脱敏日志 + 诊断导出 + 睡眠唤醒）
+- [x] M7 配置页 + 开机启动 + Notion 适配
+- [x] M8 测试套件 + 文档 + 打包（真机联调待执行）

@@ -17,3 +17,6 @@ web/*.png
 
 # macOS
 .DS_Store
+
+# 打包产物
+/dist/
