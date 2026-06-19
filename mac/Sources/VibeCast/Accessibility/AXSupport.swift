@@ -6,13 +6,50 @@ import AppKit
 enum AXSupport {
 
     /// 取某进程当前聚焦的 UI 元素。
+    /// Electron 应用（如 Notion/VS Code）默认不暴露完整 AX 树，需先打开 AXManualAccessibility；
+    /// 且其 AXFocusedUIElement 常为空，此时从聚焦窗口向下查找可编辑元素兜底。
     static func focusedElement(pid: pid_t) -> AXUIElement? {
         let appEl = AXUIElementCreateApplication(pid)
+
+        // Electron/Chromium：开启手动 accessibility（幂等，原生应用忽略）。
+        AXUIElementSetAttributeValue(appEl, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+
+        // 1) 直接取应用级聚焦元素。
         var value: CFTypeRef?
-        let err = AXUIElementCopyAttributeValue(appEl, kAXFocusedUIElementAttribute as CFString, &value)
-        guard err == .success, let v = value else { return nil }
-        // CFTypeRef → AXUIElement
-        return (v as! AXUIElement)
+        if AXUIElementCopyAttributeValue(appEl, kAXFocusedUIElementAttribute as CFString, &value) == .success,
+           let v = value {
+            return (v as! AXUIElement)
+        }
+
+        // 2) 兜底：从聚焦窗口子树里找第一个可编辑文本控件。
+        var winRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(appEl, kAXFocusedWindowAttribute as CFString, &winRef) == .success,
+           let win = winRef {
+            return findEditable(in: (win as! AXUIElement), depth: 18)
+        }
+        return nil
+    }
+
+    /// 在子树中深度优先查找首个可编辑文本元素（用于 Electron 焦点兜底）。
+    private static func findEditable(in element: AXUIElement, depth: Int) -> AXUIElement? {
+        if depth < 0 { return nil }
+        // 优先返回当前聚焦元素（若该子节点声明了焦点）。
+        var focusedRef: CFTypeRef?
+        if AXUIElementCopyAttributeValue(element, kAXFocusedUIElementAttribute as CFString, &focusedRef) == .success,
+           let f = focusedRef {
+            let fe = f as! AXUIElement
+            if isEditableText(fe) { return fe }
+        }
+        if isEditableText(element) { return element }
+        var childrenRef: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+              let children = childrenRef as? [AXUIElement] else {
+            return nil
+        }
+        for child in children {
+            if let found = findEditable(in: child, depth: depth - 1) { return found }
+        }
+        return nil
     }
 
     /// 取系统范围当前聚焦元素（用于校验前台焦点）。
