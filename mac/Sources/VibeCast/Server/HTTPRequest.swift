@@ -53,6 +53,10 @@ enum HTTPResponse {
         var h = headers
         h["Content-Length"] = String(body.count)
         h["Connection"] = "close"
+        // 允许跨源/模块脚本加载（手机端 type=module crossorigin 资源需要）。
+        h["Access-Control-Allow-Origin"] = "*"
+        // 局域网下禁缓存，避免手机加载到旧版本资源导致空白。
+        h["Cache-Control"] = "no-store"
         for (k, v) in h { head += "\(k): \(v)\r\n" }
         head += "\r\n"
         var out = Data(head.utf8)
