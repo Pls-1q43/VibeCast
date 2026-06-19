@@ -71,14 +71,17 @@ enum FocusController {
     }
 
     /// 校验绑定是否仍然有效：应用仍在前台 + 焦点元素未变。PRD 9.3。
-    static func validate(_ binding: TargetBinding) -> Bool {
-        // 应用仍在前台？
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.pid else {
-            return false
+    /// - requireFrontmost: 是否要求目标当前在前台。clipboard_paste 写入会自行重新激活目标，
+    ///   且控制端常在另一设备/窗口，故此模式放宽前台要求，仅校验进程仍存活。
+    static func validate(_ binding: TargetBinding, requireFrontmost: Bool = true) -> Bool {
+        if requireFrontmost {
+            guard NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.pid else {
+                return false
+            }
+            guard let current = AXSupport.focusedElement(pid: binding.pid) else { return false }
+            return CFEqual(current, binding.element)
         }
-        // 当前焦点元素仍是绑定元素？
-        guard let current = AXSupport.focusedElement(pid: binding.pid) else { return false }
-        // AXUIElement 支持 == 比较（CFEqual）。
-        return CFEqual(current, binding.element)
+        // 放宽模式：仅要求目标进程仍在运行（写入时会重新激活并在已聚焦输入框内粘贴）。
+        return NSRunningApplication(processIdentifier: binding.pid) != nil
     }
 }

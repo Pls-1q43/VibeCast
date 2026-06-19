@@ -268,10 +268,13 @@ final class SessionManager: ServerDelegate {
         }
 
         // 3) 后台执行绑定校验 + 写入（含 AX/剪贴板，耗时）。
+        let prof = self.config.profile(targetId)
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
-            guard FocusController.validate(binding) else {
+            // clipboard_paste 会自行重新激活目标，放宽前台校验（控制端常在另一设备/窗口）。
+            let requireFrontmost = (prof.writeMode != .clipboardPaste)
+            guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
                 self.send(conn, TargetStatusMessage(sessionId: sessionId, targetId: targetId,
                                                     status: .notFocused, errorCode: .targetNotFocused,
@@ -281,7 +284,6 @@ final class SessionManager: ServerDelegate {
                 return
             }
 
-            let prof = self.config.profile(targetId)
             let result = TextWriter.write(text, to: binding, writeMode: prof.writeMode,
                                           allowSelectAllReplace: prof.allowSelectAllReplace)
             switch result {

@@ -58,41 +58,45 @@ enum TextWriter {
     // MARK: - 剪贴板降级（PRD 10.2）
 
     private static func writeViaClipboard(_ text: String, to binding: TargetBinding) -> WriteResult {
-        // 再次确认目标仍在前台（粘贴前最后一道防线）。
+        // 合成键盘事件会发给"当前前台应用"。手机操作时目标常已不在前台，
+        // 因此粘贴前必须把目标重新激活到前台（我们持有其 pid，激活是安全的）。
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid {
+            if let app = NSRunningApplication(processIdentifier: binding.pid) {
+                app.activate(options: [])
+                // 等待前台切换生效。
+                var waited = 0.0
+                while NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid && waited < 0.6 {
+                    Thread.sleep(forTimeInterval: 0.03); waited += 0.03
+                }
+            }
+        }
         guard NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.pid else {
-            return .failed("粘贴前目标已失焦")
+            DiagnosticsLog.shared.log("clipboard write: 无法把目标激活到前台 pid=\(binding.pid)")
+            return .failed("无法将目标置于前台（粘贴需要）")
         }
 
         let pasteboard = NSPasteboard.general
-        // 1) 备份当前剪贴板（保留所有类型尽力而为；至少保留字符串）。
         let savedItems = backupPasteboard(pasteboard)
+        defer { restorePasteboard(pasteboard, items: savedItems) }
 
-        defer {
-            // 5) 恢复用户剪贴板（无论成功与否）。
-            restorePasteboard(pasteboard, items: savedItems)
-        }
-
-        // 2) 放入目标文本
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        Thread.sleep(forTimeInterval: 0.03)
 
-        // 3) 全选（仅在已校验焦点的前提下）→ 4) 粘贴
         guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "a")) else {
             return .failed("无法发送全选")
         }
-        Thread.sleep(forTimeInterval: 0.03)
+        Thread.sleep(forTimeInterval: 0.04)
         guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "v")) else {
             return .failed("无法发送粘贴")
         }
-        // 给目标应用时间处理粘贴并回填 AXValue。
-        Thread.sleep(forTimeInterval: 0.08)
+        Thread.sleep(forTimeInterval: 0.12)
 
-        // 6) 验证：尽力读取 AXValue 比对（部分控件粘贴后可读）。
+        // 验证：尽力读 AXValue 比对（Electron 常读不回，标注未验证但视为成功）。
         if verify(binding.element, expects: text) {
             return .applied(method: "clipboard")
         }
-        // 无法读回值的控件（如某些 Electron）粘贴可能已成功但不可验证：
-        // 不报失败，但标注为未验证，交由上层按需处理。
+        DiagnosticsLog.shared.log("clipboard write: 已粘贴但无法读回验证 (Electron 常态)")
         return .applied(method: "clipboard_unverified")
     }
 
