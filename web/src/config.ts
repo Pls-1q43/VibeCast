@@ -91,9 +91,12 @@ function handle(m: ServerMessage) {
       render();
       break;
     case "server_status":
-      serverName = m.serverName;
-      accessibilityGranted = m.accessibilityGranted;
-      render();
+      {
+        const shouldRender = serverName !== m.serverName || accessibilityGranted !== m.accessibilityGranted;
+        serverName = m.serverName;
+        accessibilityGranted = m.accessibilityGranted;
+        if (shouldRender) render();
+      }
       setStatus(i18n.t("cfg.connected", { name: serverName }));
       break;
     case "config":
