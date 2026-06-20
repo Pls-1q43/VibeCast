@@ -14,7 +14,6 @@ on:
 permissions:
   contents: write
   pages: write
-  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -24,9 +23,6 @@ jobs:
   release:
     name: Build and publish release
     runs-on: macos-14
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy-pages.outputs.page_url }}
 
     steps:
       - name: Check out repository
@@ -127,16 +123,26 @@ jobs:
               --generate-notes
           fi
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
+      - name: Publish appcast to GitHub Pages branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          PAGES_DIR="$RUNNER_TEMP/gh-pages"
+          rm -rf "$PAGES_DIR"
+          mkdir -p "$PAGES_DIR"
+          cp -R public/. "$PAGES_DIR/"
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
+          git -C "$PAGES_DIR" init
+          git -C "$PAGES_DIR" checkout -b gh-pages
+          git -C "$PAGES_DIR" config user.name "github-actions[bot]"
+          git -C "$PAGES_DIR" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$PAGES_DIR" add .
+          git -C "$PAGES_DIR" commit -m "Deploy appcast for $TAG"
+          git -C "$PAGES_DIR" push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
 
-      - name: Deploy appcast to GitHub Pages
-        id: deploy-pages
-        uses: actions/deploy-pages@v4
+          gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" \
+            -F "source[branch]=gh-pages" \
+            -F "source[path]=/"
