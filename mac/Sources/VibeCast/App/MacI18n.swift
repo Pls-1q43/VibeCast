@@ -1,0 +1,271 @@
+import Foundation
+
+enum MacI18n {
+    private static var language: String {
+        let preferred = Locale.preferredLanguages.first?.lowercased() ?? "zh-cn"
+        if preferred.hasPrefix("zh") { return "zh-CN" }
+        if preferred.hasPrefix("ja") { return "ja" }
+        if preferred.hasPrefix("ko") { return "ko" }
+        if preferred.hasPrefix("es") { return "es" }
+        if preferred.hasPrefix("hi") { return "hi" }
+        if preferred.hasPrefix("ar") { return "ar" }
+        if preferred.hasPrefix("en") { return "en" }
+        return "zh-CN"
+    }
+
+    static func t(_ key: String) -> String {
+        tables[language]?[key] ?? tables["zh-CN"]?[key] ?? key
+    }
+
+    static func f(_ key: String, _ args: CVarArg...) -> String {
+        String(format: t(key), locale: Locale(identifier: language), arguments: args)
+    }
+
+    private static let zh: [String: String] = [
+        "serviceRunning": "● 服务运行中",
+        "serviceStopped": "○ 服务未运行",
+        "phoneAddress": "手机访问地址：",
+        "copyAddress": "复制访问地址（含令牌）",
+        "noLAN": "未检测到局域网地址",
+        "connectedPhones": "已连接手机：%d",
+        "accessibilityAuthorized": "辅助功能：当前运行版本已授权",
+        "accessibilityUnauthorized": "辅助功能：当前运行版本未授权",
+        "openAccessibility": "打开辅助功能设置…",
+        "openConfig": "打开配置页面…",
+        "restart": "重启服务",
+        "showLog": "查看日志…",
+        "regenerateToken": "重新生成配对令牌",
+        "launchAtLogin": "登录时自动启动",
+        "quit": "退出 VibeCast",
+        "tooltipConnected": "VibeCast · 已连接 %d 台设备",
+        "missingResources": "错误：未找到前端资源（Resources/web）",
+        "serviceStarted": "服务已启动，端口 %d",
+        "serviceStartFailed": "服务启动失败: %@",
+        "restarting": "正在重启服务…",
+        "copied": "已复制访问地址到剪贴板",
+        "tokenRegenerated": "已重新生成配对令牌，旧设备需重新配对",
+        "loginOn": "已开启",
+        "loginOff": "已关闭",
+        "loginState": "开机自启：%@",
+        "configNoLAN": "无法打开配置页：未检测到局域网地址",
+        "diagnosticsTitle": "VibeCast 诊断日志",
+        "exportDiagnostics": "导出诊断包…",
+        "close": "关闭",
+        "diagnosticsFailed": "诊断包导出失败",
+        "diagnosticsExported": "诊断包已导出: %@"
+    ]
+
+    private static let en: [String: String] = [
+        "serviceRunning": "● Service running",
+        "serviceStopped": "○ Service stopped",
+        "phoneAddress": "Phone address:",
+        "copyAddress": "Copy access address with token",
+        "noLAN": "No LAN address detected",
+        "connectedPhones": "Connected phones: %d",
+        "accessibilityAuthorized": "Accessibility: this running build is authorized",
+        "accessibilityUnauthorized": "Accessibility: this running build is not authorized",
+        "openAccessibility": "Open Accessibility Settings…",
+        "openConfig": "Open Configuration Page…",
+        "restart": "Restart Service",
+        "showLog": "View Logs…",
+        "regenerateToken": "Regenerate Pairing Token",
+        "launchAtLogin": "Launch at Login",
+        "quit": "Quit VibeCast",
+        "tooltipConnected": "VibeCast · %d device(s) connected",
+        "missingResources": "Error: web resources not found (Resources/web)",
+        "serviceStarted": "Service started on port %d",
+        "serviceStartFailed": "Service failed to start: %@",
+        "restarting": "Restarting service…",
+        "copied": "Copied access address to clipboard",
+        "tokenRegenerated": "Pairing token regenerated; old devices need to pair again",
+        "loginOn": "enabled",
+        "loginOff": "disabled",
+        "loginState": "Launch at login: %@",
+        "configNoLAN": "Cannot open configuration page: no LAN address detected",
+        "diagnosticsTitle": "VibeCast Diagnostics Log",
+        "exportDiagnostics": "Export Diagnostics…",
+        "close": "Close",
+        "diagnosticsFailed": "Diagnostics export failed",
+        "diagnosticsExported": "Diagnostics exported: %@"
+    ]
+
+    private static let ja: [String: String] = [
+        "serviceRunning": "● サービス実行中",
+        "serviceStopped": "○ サービス停止中",
+        "phoneAddress": "スマホアクセス先：",
+        "copyAddress": "アクセス URL（トークン付き）をコピー",
+        "noLAN": "LAN アドレスが見つかりません",
+        "connectedPhones": "接続中のスマホ：%d",
+        "accessibilityAuthorized": "アクセシビリティ：現在の実行版は承認済み",
+        "accessibilityUnauthorized": "アクセシビリティ：現在の実行版は未承認",
+        "openAccessibility": "アクセシビリティ設定を開く…",
+        "openConfig": "設定ページを開く…",
+        "restart": "サービスを再起動",
+        "showLog": "ログを表示…",
+        "regenerateToken": "ペアリングトークンを再生成",
+        "launchAtLogin": "ログイン時に起動",
+        "quit": "VibeCast を終了",
+        "tooltipConnected": "VibeCast · %d 台接続中",
+        "missingResources": "エラー：Web リソースが見つかりません（Resources/web）",
+        "serviceStarted": "サービスを開始しました。ポート %d",
+        "serviceStartFailed": "サービス開始失敗: %@",
+        "restarting": "サービスを再起動中…",
+        "copied": "アクセス URL をクリップボードにコピーしました",
+        "tokenRegenerated": "ペアリングトークンを再生成しました。旧デバイスは再ペアリングが必要です",
+        "loginOn": "オン",
+        "loginOff": "オフ",
+        "loginState": "ログイン時起動：%@",
+        "configNoLAN": "設定ページを開けません：LAN アドレスが見つかりません",
+        "diagnosticsTitle": "VibeCast 診断ログ",
+        "exportDiagnostics": "診断パッケージを書き出す…",
+        "close": "閉じる",
+        "diagnosticsFailed": "診断パッケージの書き出しに失敗しました",
+        "diagnosticsExported": "診断パッケージを書き出しました: %@"
+    ]
+
+    private static let ko: [String: String] = [
+        "serviceRunning": "● 서비스 실행 중",
+        "serviceStopped": "○ 서비스 중지됨",
+        "phoneAddress": "폰 접속 주소:",
+        "copyAddress": "접속 주소(토큰 포함) 복사",
+        "noLAN": "LAN 주소를 찾지 못했습니다",
+        "connectedPhones": "연결된 폰: %d",
+        "accessibilityAuthorized": "손쉬운 사용: 현재 실행 빌드 승인됨",
+        "accessibilityUnauthorized": "손쉬운 사용: 현재 실행 빌드 미승인",
+        "openAccessibility": "손쉬운 사용 설정 열기…",
+        "openConfig": "설정 페이지 열기…",
+        "restart": "서비스 재시작",
+        "showLog": "로그 보기…",
+        "regenerateToken": "페어링 토큰 다시 생성",
+        "launchAtLogin": "로그인 시 자동 실행",
+        "quit": "VibeCast 종료",
+        "tooltipConnected": "VibeCast · %d대 연결됨",
+        "missingResources": "오류: 웹 리소스를 찾을 수 없습니다(Resources/web)",
+        "serviceStarted": "서비스가 포트 %d에서 시작됨",
+        "serviceStartFailed": "서비스 시작 실패: %@",
+        "restarting": "서비스 재시작 중…",
+        "copied": "접속 주소를 클립보드에 복사했습니다",
+        "tokenRegenerated": "페어링 토큰이 다시 생성되었습니다. 기존 기기는 다시 페어링해야 합니다",
+        "loginOn": "켜짐",
+        "loginOff": "꺼짐",
+        "loginState": "로그인 시 실행: %@",
+        "configNoLAN": "설정 페이지를 열 수 없음: LAN 주소를 찾지 못했습니다",
+        "diagnosticsTitle": "VibeCast 진단 로그",
+        "exportDiagnostics": "진단 패키지 내보내기…",
+        "close": "닫기",
+        "diagnosticsFailed": "진단 패키지 내보내기 실패",
+        "diagnosticsExported": "진단 패키지 내보냄: %@"
+    ]
+
+    private static let es: [String: String] = [
+        "serviceRunning": "● Servicio en ejecución",
+        "serviceStopped": "○ Servicio detenido",
+        "phoneAddress": "Dirección del teléfono:",
+        "copyAddress": "Copiar dirección con token",
+        "noLAN": "No se detectó dirección LAN",
+        "connectedPhones": "Teléfonos conectados: %d",
+        "accessibilityAuthorized": "Accesibilidad: esta compilación está autorizada",
+        "accessibilityUnauthorized": "Accesibilidad: esta compilación no está autorizada",
+        "openAccessibility": "Abrir Ajustes de Accesibilidad…",
+        "openConfig": "Abrir Página de Configuración…",
+        "restart": "Reiniciar Servicio",
+        "showLog": "Ver Registros…",
+        "regenerateToken": "Regenerar Token de Emparejamiento",
+        "launchAtLogin": "Iniciar al Entrar",
+        "quit": "Salir de VibeCast",
+        "tooltipConnected": "VibeCast · %d dispositivo(s) conectado(s)",
+        "missingResources": "Error: no se encontraron recursos web (Resources/web)",
+        "serviceStarted": "Servicio iniciado en el puerto %d",
+        "serviceStartFailed": "Error al iniciar servicio: %@",
+        "restarting": "Reiniciando servicio…",
+        "copied": "Dirección copiada al portapapeles",
+        "tokenRegenerated": "Token regenerado; los dispositivos anteriores deben emparejarse de nuevo",
+        "loginOn": "activado",
+        "loginOff": "desactivado",
+        "loginState": "Inicio al entrar: %@",
+        "configNoLAN": "No se puede abrir configuración: no se detectó dirección LAN",
+        "diagnosticsTitle": "Registro de Diagnóstico de VibeCast",
+        "exportDiagnostics": "Exportar Diagnóstico…",
+        "close": "Cerrar",
+        "diagnosticsFailed": "Falló la exportación de diagnóstico",
+        "diagnosticsExported": "Diagnóstico exportado: %@"
+    ]
+
+    private static let hi: [String: String] = [
+        "serviceRunning": "● सेवा चल रही है",
+        "serviceStopped": "○ सेवा बंद है",
+        "phoneAddress": "फोन एक्सेस पता:",
+        "copyAddress": "टोकन सहित एक्सेस पता कॉपी करें",
+        "noLAN": "LAN पता नहीं मिला",
+        "connectedPhones": "कनेक्टेड फोन: %d",
+        "accessibilityAuthorized": "Accessibility: यह रनिंग बिल्ड अधिकृत है",
+        "accessibilityUnauthorized": "Accessibility: यह रनिंग बिल्ड अधिकृत नहीं है",
+        "openAccessibility": "Accessibility सेटिंग खोलें…",
+        "openConfig": "कॉन्फ़िगरेशन पेज खोलें…",
+        "restart": "सेवा रीस्टार्ट करें",
+        "showLog": "लॉग देखें…",
+        "regenerateToken": "पेयरिंग टोकन फिर बनाएं",
+        "launchAtLogin": "लॉगिन पर शुरू करें",
+        "quit": "VibeCast बंद करें",
+        "tooltipConnected": "VibeCast · %d डिवाइस कनेक्टेड",
+        "missingResources": "त्रुटि: वेब संसाधन नहीं मिले (Resources/web)",
+        "serviceStarted": "सेवा पोर्ट %d पर शुरू हुई",
+        "serviceStartFailed": "सेवा शुरू करने में विफल: %@",
+        "restarting": "सेवा रीस्टार्ट हो रही है…",
+        "copied": "एक्सेस पता क्लिपबोर्ड में कॉपी हुआ",
+        "tokenRegenerated": "पेयरिंग टोकन फिर बना; पुराने डिवाइस फिर पेयर करें",
+        "loginOn": "चालू",
+        "loginOff": "बंद",
+        "loginState": "लॉगिन पर शुरू: %@",
+        "configNoLAN": "कॉन्फ़िगरेशन पेज नहीं खुला: LAN पता नहीं मिला",
+        "diagnosticsTitle": "VibeCast डायग्नोस्टिक लॉग",
+        "exportDiagnostics": "डायग्नोस्टिक पैकेज एक्सपोर्ट करें…",
+        "close": "बंद करें",
+        "diagnosticsFailed": "डायग्नोस्टिक एक्सपोर्ट विफल",
+        "diagnosticsExported": "डायग्नोस्टिक एक्सपोर्ट हुआ: %@"
+    ]
+
+    private static let ar: [String: String] = [
+        "serviceRunning": "● الخدمة تعمل",
+        "serviceStopped": "○ الخدمة متوقفة",
+        "phoneAddress": "عنوان الهاتف:",
+        "copyAddress": "نسخ عنوان الوصول مع الرمز",
+        "noLAN": "لم يتم العثور على عنوان LAN",
+        "connectedPhones": "الهواتف المتصلة: %d",
+        "accessibilityAuthorized": "تسهيلات الاستخدام: هذا الإصدار مصرح له",
+        "accessibilityUnauthorized": "تسهيلات الاستخدام: هذا الإصدار غير مصرح له",
+        "openAccessibility": "فتح إعدادات تسهيلات الاستخدام…",
+        "openConfig": "فتح صفحة الإعداد…",
+        "restart": "إعادة تشغيل الخدمة",
+        "showLog": "عرض السجلات…",
+        "regenerateToken": "إعادة توليد رمز الاقتران",
+        "launchAtLogin": "التشغيل عند تسجيل الدخول",
+        "quit": "إنهاء VibeCast",
+        "tooltipConnected": "VibeCast · %d جهاز متصل",
+        "missingResources": "خطأ: موارد الويب غير موجودة (Resources/web)",
+        "serviceStarted": "بدأت الخدمة على المنفذ %d",
+        "serviceStartFailed": "فشل بدء الخدمة: %@",
+        "restarting": "جار إعادة تشغيل الخدمة…",
+        "copied": "تم نسخ عنوان الوصول إلى الحافظة",
+        "tokenRegenerated": "تمت إعادة توليد رمز الاقتران؛ يجب إعادة اقتران الأجهزة القديمة",
+        "loginOn": "مفعّل",
+        "loginOff": "معطّل",
+        "loginState": "التشغيل عند الدخول: %@",
+        "configNoLAN": "تعذر فتح صفحة الإعداد: لم يتم العثور على عنوان LAN",
+        "diagnosticsTitle": "سجل تشخيص VibeCast",
+        "exportDiagnostics": "تصدير حزمة التشخيص…",
+        "close": "إغلاق",
+        "diagnosticsFailed": "فشل تصدير حزمة التشخيص",
+        "diagnosticsExported": "تم تصدير حزمة التشخيص: %@"
+    ]
+
+    private static let tables = [
+        "zh-CN": zh,
+        "en": en,
+        "ja": ja,
+        "ko": ko,
+        "es": es,
+        "hi": hi,
+        "ar": ar
+    ]
+}

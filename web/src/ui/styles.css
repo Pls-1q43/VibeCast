@@ -71,6 +71,27 @@ body {
   color: var(--text);
 }
 
+.language-picker {
+  margin-inline-start: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.language-picker select {
+  min-height: 34px;
+  max-width: 136px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--text);
+  font: inherit;
+  padding: 4px 8px;
+}
+
 .brandbar img {
   width: 34px;
   height: 34px;

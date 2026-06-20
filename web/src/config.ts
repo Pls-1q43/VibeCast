@@ -11,8 +11,10 @@ import {
   isServerMessage,
 } from "./ws/protocol.ts";
 import { getClientId } from "./store/draftStore.ts";
+import { LANGUAGES, createI18n, setLang, type Lang } from "./i18n.ts";
 
 const mount = document.getElementById("config")!;
+const i18n = createI18n();
 
 const PRESET_LABELS: Record<string, string> = {
   codex: "Codex",
@@ -38,7 +40,7 @@ let accessibilityGranted = false;
 let connected = false;
 let reconnectTimer: number | null = null;
 let statusTimer: number | null = null;
-let lastStatus = "正在连接 VibeCast…";
+let lastStatus = i18n.t("cfg.connecting");
 
 function connect() {
   if (reconnectTimer !== null) {
@@ -59,11 +61,11 @@ function connect() {
     if (!isServerMessage(m)) return;
     handle(m);
   };
-  ws.onerror = () => setStatus("连接异常，请确认 VibeCast 菜单栏服务仍在运行");
+  ws.onerror = () => setStatus(i18n.t("cfg.errorConnect"));
   ws.onclose = () => {
     connected = false;
     render();
-    setStatus("连接断开，正在重连…");
+    setStatus(i18n.t("cfg.reconnecting"));
     reconnectTimer = window.setTimeout(connect, 1500);
   };
 }
@@ -80,7 +82,7 @@ function handle(m: ServerMessage) {
       connected = true;
       serverName = m.serverName;
       accessibilityGranted = m.accessibilityGranted;
-      setStatus(`已连接 · ${serverName}`);
+      setStatus(i18n.t("cfg.connected", { name: serverName }));
       send({ type: "get_config" });
       send({ type: "list_running_apps" });
       send({ type: "get_status" });
@@ -91,7 +93,7 @@ function handle(m: ServerMessage) {
       serverName = m.serverName;
       accessibilityGranted = m.accessibilityGranted;
       render();
-      setStatus(`已连接 · ${serverName}`);
+      setStatus(i18n.t("cfg.connected", { name: serverName }));
       break;
     case "config":
       targets = m.targets;
@@ -102,14 +104,16 @@ function handle(m: ServerMessage) {
       render();
       break;
     case "test_result": {
-      const text = m.success ? `测试成功：${m.message ?? ""}` : `测试失败：${m.message ?? m.errorCode ?? ""}`;
+      const text = m.success
+        ? i18n.t("cfg.testOk", { message: "" })
+        : i18n.t("cfg.testFailed", { message: i18n.error(m.errorCode, m.message) });
       setStatus(text);
       const el = document.querySelector(`[data-test-result="${cssEscape(m.targetId)}"]`);
       if (el) el.textContent = text;
       break;
     }
     case "error":
-      setStatus(`${m.message}（${m.errorCode}）`);
+      setStatus(i18n.error(m.errorCode, m.message));
       break;
     default:
       break;
@@ -128,6 +132,7 @@ function send(msg: object) {
 }
 
 function render() {
+  document.title = i18n.t("cfg.pageTitle");
   mount.innerHTML = "";
   mount.append(renderHeader(), renderOnboarding(), renderAddTarget(), renderTargetList());
 }
@@ -142,37 +147,65 @@ function renderHeader(): HTMLElement {
   logo.setAttribute("aria-hidden", "true");
   const brandName = document.createElement("span");
   brandName.textContent = "VibeCast";
-  brand.append(logo, brandName);
+  brand.append(logo, brandName, renderLanguagePicker());
   const h = document.createElement("h1");
-  h.textContent = "配置目标 App";
+  h.textContent = i18n.t("cfg.title");
   const lead = document.createElement("p");
-  lead.textContent = "启用需要的 App，绑定 Bundle ID，测试写入效果。常用设置放在列表里，风险项收在高级设置。";
+  lead.textContent = i18n.t("cfg.lead");
   titleWrap.append(brand, h, lead);
 
   const panel = el("div", "cfg-hero__status");
   const conn = el("div", "cfg-statusline");
   conn.dataset.cfgStatus = "";
   conn.textContent = lastStatus;
-  const permission = el("div", accessibilityGranted ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
-  permission.textContent = accessibilityGranted ? "当前运行版本已授权" : "当前运行版本未授权";
-  const permissionHint = document.createElement("p");
-  permissionHint.className = accessibilityGranted ? "cfg-permission-hint" : "cfg-permission-hint cfg-permission-hint--warn";
-  permissionHint.textContent = accessibilityGranted
-    ? "VibeCast 可以激活、聚焦并写入目标 App。"
-    : "如果系统设置里 VibeCast 已开启但这里仍未授权，请在系统设置中关闭再打开 VibeCast，或退出后重新打开 VibeCast。";
+  const allNormal = connected && accessibilityGranted;
+  const status = el("div", allNormal ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+  status.textContent = allNormal
+    ? i18n.t("cfg.statusOk")
+    : connected
+      ? i18n.t("cfg.statusNeedsPermission")
+      : i18n.t("cfg.statusConnecting");
+  const statusHint = document.createElement("p");
+  statusHint.className = allNormal ? "cfg-permission-hint" : "cfg-permission-hint cfg-permission-hint--warn";
+  statusHint.textContent = allNormal
+    ? i18n.t("cfg.statusOkHint")
+    : connected
+      ? i18n.t("cfg.statusNeedsPermissionHint")
+      : i18n.t("cfg.statusConnectingHint");
   const actions = el("div", "cfg-hero__actions");
-  const refresh = button("刷新运行应用", "btn btn--ghost", () => {
+  const refresh = button(i18n.t("cfg.refreshApps"), "btn btn--ghost", () => {
     send({ type: "list_running_apps" });
-    setStatus("正在刷新运行应用…");
+    setStatus(i18n.t("cfg.refreshingApps"));
   });
-  const openSettings = button("打开辅助功能设置", accessibilityGranted ? "btn btn--ghost" : "btn btn--primary", () => {
+  const openSettings = button(i18n.t("cfg.openAccessibility"), accessibilityGranted ? "btn btn--ghost" : "btn btn--primary", () => {
     send({ type: "open_accessibility_settings" });
-    setStatus("已请求打开 macOS 辅助功能设置");
+    setStatus(i18n.t("cfg.openAccessibilityRequested"));
   });
   actions.append(openSettings, refresh);
-  panel.append(conn, permission, permissionHint, actions);
+  panel.append(conn, status, statusHint, actions);
   header.append(titleWrap, panel);
   return header;
+}
+
+function renderLanguagePicker(): HTMLLabelElement {
+  const wrap = document.createElement("label");
+  wrap.className = "language-picker";
+  const span = document.createElement("span");
+  span.textContent = i18n.t("app.language");
+  const select = document.createElement("select");
+  for (const lang of LANGUAGES) {
+    const option = document.createElement("option");
+    option.value = lang.code;
+    option.textContent = lang.label;
+    option.selected = lang.code === i18n.lang;
+    select.append(option);
+  }
+  select.addEventListener("change", () => {
+    setLang(select.value as Lang);
+    location.reload();
+  });
+  wrap.append(span, select);
+  return wrap;
 }
 
 function renderOnboarding(): HTMLElement {
@@ -185,14 +218,14 @@ function renderOnboarding(): HTMLElement {
   box.className = "cfg-onboarding";
   box.open = !allDone;
   const summary = document.createElement("summary");
-  summary.textContent = allDone ? "首次配置已完成" : "首次安装清单";
+  summary.textContent = allDone ? i18n.t("cfg.onboardingDone") : i18n.t("cfg.onboarding");
   const list = el("ol", "cfg-checklist");
   list.append(
-    checklistItem("连接到 Mac 菜单栏服务", connected),
-    checklistItem("放通当前运行版本的 macOS 辅助功能权限", accessibilityGranted),
-    checklistItem("勾选需要在手机端显示的 App", enabledTargets.length > 0),
-    checklistItem("为每个启用 App 绑定 Bundle ID", enabledTargets.length > 0 && configuredTargets.length === enabledTargets.length),
-    checklistItem("逐个测试写入，不确定发送行为时先选“仅同步不发送”", testedReady),
+    checklistItem(i18n.t("cfg.checkConnect"), connected),
+    checklistItem(i18n.t("cfg.checkPermission"), accessibilityGranted),
+    checklistItem(i18n.t("cfg.checkEnabled"), enabledTargets.length > 0),
+    checklistItem(i18n.t("cfg.checkBundle"), enabledTargets.length > 0 && configuredTargets.length === enabledTargets.length),
+    checklistItem(i18n.t("cfg.checkTest"), testedReady),
   );
   box.append(summary, list);
   return box;
@@ -201,29 +234,29 @@ function renderOnboarding(): HTMLElement {
 function renderAddTarget(): HTMLElement {
   const section = el("section", "cfg-add");
   const title = document.createElement("h2");
-  title.textContent = "添加自定义 App";
+  title.textContent = i18n.t("cfg.addCustom");
   const controls = el("div", "cfg-add__controls");
-  const nameInput = input("自定义 App", "App 名称");
-  const bundleInput = input("", "Bundle ID，例如 com.apple.TextEdit");
+  const nameInput = input(i18n.t("cfg.customApp"), i18n.t("cfg.appName"));
+  const bundleInput = input("", i18n.t("cfg.bundleExample"));
 
-  const picker = select("", [["", "从运行应用选择"], ...runningApps.map((a) => [a.bundleId, `${a.name} (${a.bundleId})`] as [string, string])], (v) => {
+  const picker = select("", [["", i18n.t("cfg.pickRunning")], ...runningApps.map((a) => [a.bundleId, `${a.name} (${a.bundleId})`] as [string, string])], (v) => {
     if (!v) return;
     const app = runningApps.find((a) => a.bundleId === v);
     if (!app) return;
     nameInput.value = app.name;
     bundleInput.value = app.bundleId;
   });
-  const addBtn = button("添加", "btn btn--primary", () => {
+  const addBtn = button(i18n.t("cfg.add"), "btn btn--primary", () => {
     const displayName = nameInput.value.trim();
     const bundleId = bundleInput.value.trim();
     if (!displayName && !bundleId) {
-      setStatus("请填写 App 名称或先从运行应用选择");
+      setStatus(i18n.t("cfg.needName"));
       return;
     }
     send({ type: "create_target", displayName: displayName || bundleId, bundleId: bundleId || null });
-    setStatus(`正在添加 ${displayName || bundleId}…`);
+    setStatus(i18n.t("cfg.adding", { name: displayName || bundleId }));
   });
-  controls.append(wrapField("App 名称", nameInput), wrapField("Bundle ID", bundleInput), wrapField("运行应用", picker), addBtn);
+  controls.append(wrapField(i18n.t("cfg.appName"), nameInput), wrapField("Bundle ID", bundleInput), wrapField(i18n.t("cfg.runningApp"), picker), addBtn);
   section.append(title, controls);
   return section;
 }
@@ -232,17 +265,17 @@ function renderTargetList(): HTMLElement {
   const section = el("section", "cfg-list");
   const header = el("div", "cfg-list__header");
   const h = document.createElement("h2");
-  h.textContent = "目标列表";
+  h.textContent = i18n.t("cfg.targetList");
   const meta = document.createElement("p");
   const enabled = targets.filter((t) => t.enabled).length;
   const ready = targets.filter((t) => t.enabled && t.profile.bundleId.trim()).length;
-  meta.textContent = `${enabled} 个已启用，${ready} 个已绑定 Bundle ID`;
+  meta.textContent = i18n.t("cfg.meta", { enabled, ready });
   header.append(h, meta);
   section.append(header);
 
   if (!targets.length) {
     const empty = el("p", "cfg-empty");
-    empty.textContent = "正在读取配置…";
+    empty.textContent = i18n.t("cfg.loading");
     section.append(empty);
     return section;
   }
@@ -265,9 +298,9 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
   const main = el("div", "cfg-row__main");
   const toggle = checkbox(target.enabled, (v) => {
     send({ type: "set_target_enabled", targetId: target.id, enabled: v });
-    setStatus(`${p.displayName} 已${v ? "启用" : "停用"}`);
+    setStatus(i18n.t("cfg.enabledState", { name: p.displayName, state: v ? i18n.t("cfg.enabled") : i18n.t("cfg.disabled") }));
   });
-  toggle.setAttribute("aria-label", `${p.displayName} 启用状态`);
+  toggle.setAttribute("aria-label", i18n.t("cfg.enabledAria", { name: p.displayName }));
 
   const icon = el("div", "cfg-row__icon");
   icon.textContent = (p.displayName || target.id).charAt(0).toUpperCase();
@@ -278,15 +311,15 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
   const title = document.createElement("h3");
   title.textContent = p.displayName || PRESET_LABELS[target.id] || target.id;
   const badge = el("span", p.bundleId.trim() ? "cfg-badge cfg-badge--ok" : "cfg-badge cfg-badge--warn");
-  badge.textContent = p.bundleId.trim() ? "可测试" : "需绑定 Bundle ID";
+  badge.textContent = p.bundleId.trim() ? i18n.t("cfg.ready") : i18n.t("cfg.needsBundle");
   titleLine.append(title, badge);
   const subtitle = document.createElement("p");
-  subtitle.textContent = target.kind === "preset" ? "预置目标" : "自定义目标";
+  subtitle.textContent = target.kind === "preset" ? i18n.t("cfg.preset") : i18n.t("cfg.custom");
   summary.append(titleLine, subtitle);
   main.append(toggle, icon, summary);
 
   const quick = el("div", "cfg-row__quick");
-  const displayName = input(p.displayName, "显示名称");
+  const displayName = input(p.displayName, i18n.t("cfg.displayName"));
   displayName.addEventListener("input", () => {
     p.displayName = displayName.value;
     title.textContent = p.displayName || target.id;
@@ -294,10 +327,10 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
   const bundleId = input(p.bundleId, "Bundle ID");
   bundleId.addEventListener("input", () => {
     p.bundleId = bundleId.value;
-    badge.textContent = p.bundleId.trim() ? "可测试" : "需绑定 Bundle ID";
+    badge.textContent = p.bundleId.trim() ? i18n.t("cfg.ready") : i18n.t("cfg.needsBundle");
     badge.className = p.bundleId.trim() ? "cfg-badge cfg-badge--ok" : "cfg-badge cfg-badge--warn";
   });
-  const picker = select("", [["", "从运行应用选择"], ...runningApps.map((a) => [a.bundleId, `${a.name} (${a.bundleId})`] as [string, string])], (v) => {
+  const picker = select("", [["", i18n.t("cfg.pickRunning")], ...runningApps.map((a) => [a.bundleId, `${a.name} (${a.bundleId})`] as [string, string])], (v) => {
     if (!v) return;
     const app = runningApps.find((a) => a.bundleId === v);
     p.bundleId = v;
@@ -307,10 +340,10 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
       displayName.value = app.name;
       title.textContent = app.name;
     }
-    badge.textContent = "可测试";
+    badge.textContent = i18n.t("cfg.ready");
     badge.className = "cfg-badge cfg-badge--ok";
   });
-  quick.append(wrapField("显示名称", displayName), wrapField("Bundle ID", bundleId), wrapField("快速选择", picker));
+  quick.append(wrapField(i18n.t("cfg.displayName"), displayName), wrapField("Bundle ID", bundleId), wrapField(i18n.t("cfg.quickPick"), picker));
 
   const validation = el("div", "cfg-validation");
   const result = el("div", "cfg-result");
@@ -319,29 +352,29 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
   const advanced = renderAdvanced(target.id, p);
 
   const actions = el("div", "cfg-row__actions");
-  const saveBtn = button("保存", "btn btn--primary", () => {
+  const saveBtn = button(i18n.t("cfg.save"), "btn btn--primary", () => {
     const issues = validateProfile(p);
     validation.textContent = issues.join(" · ");
     send({ type: "set_config", targetId: target.id, profile: p });
-    setStatus(`已保存 ${p.displayName || target.id}`);
+    setStatus(i18n.t("cfg.saved", { name: p.displayName || target.id }));
   });
-  const testBtn = button("测试", "btn btn--ghost", () => {
+  const testBtn = button(i18n.t("cfg.test"), "btn btn--ghost", () => {
     const issues = validateProfile(p);
     validation.textContent = issues.join(" · ");
     if (!p.bundleId.trim()) {
-      setStatus("请先选择或填写 Bundle ID，再测试目标");
+      setStatus(i18n.t("cfg.needBundle"));
       return;
     }
     send({ type: "set_config", targetId: target.id, profile: p });
     send({ type: "test_target", targetId: target.id });
-    setStatus(`正在测试 ${p.displayName || target.id}…`);
+    setStatus(i18n.t("cfg.testing", { name: p.displayName || target.id }));
   });
   actions.append(saveBtn, testBtn);
   if (target.kind === "custom") {
-    actions.append(button("删除", "btn btn--ghost btn--danger", () => {
-      if (!window.confirm(`删除自定义目标“${p.displayName || target.id}”？`)) return;
+    actions.append(button(i18n.t("cfg.delete"), "btn btn--ghost btn--danger", () => {
+      if (!window.confirm(i18n.t("cfg.deleteConfirm", { name: p.displayName || target.id }))) return;
       send({ type: "delete_target", targetId: target.id });
-      setStatus(`已请求删除 ${p.displayName || target.id}`);
+      setStatus(i18n.t("cfg.deleteRequested", { name: p.displayName || target.id }));
     }));
   }
 
@@ -353,7 +386,7 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
   const details = document.createElement("details");
   details.className = "cfg-advanced";
   const summary = document.createElement("summary");
-  summary.textContent = "高级设置";
+  summary.textContent = i18n.t("cfg.advanced");
 
   const focusShortcutKey = input(p.focusShortcut?.key ?? "", "key");
   focusShortcutKey.addEventListener("input", () => {
@@ -375,36 +408,36 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
 
   const grid = el("div", "cfg-advanced__grid");
   grid.append(
-    wrapField("聚焦策略", select(p.focusMode, [
-      ["shortcut", "应用快捷键"], ["preserve_last_focus", "恢复上次焦点"],
-      ["accessibility", "Accessibility 查找"], ["custom", "自定义"],
+    wrapField(i18n.t("cfg.focusMode"), select(p.focusMode, [
+      ["shortcut", i18n.t("cfg.focusShortcut")], ["preserve_last_focus", i18n.t("cfg.preserveFocus")],
+      ["accessibility", i18n.t("cfg.accessibilityLookup")], ["custom", i18n.t("cfg.customMode")],
     ], (v) => (p.focusMode = v as TargetProfile["focusMode"]))),
-    wrapField("聚焦快捷键 key", focusShortcutKey),
-    wrapField("聚焦快捷键修饰键", focusShortcutMods),
-    wrapField("聚焦等待 ms", numberInput(p.focusWaitMs, (v) => (p.focusWaitMs = v))),
-    wrapField("写入方式", select(p.writeMode ?? "auto", [
-      ["auto", "自动：AXValue，必要时全选替换"],
-      ["axvalue", "仅 AXValue 直写"],
-      ["clipboard_replace", "剪贴板全选替换"],
-      ["clipboard_insert", "剪贴板光标插入"],
+    wrapField(i18n.t("cfg.focusKey"), focusShortcutKey),
+    wrapField(i18n.t("cfg.focusMods"), focusShortcutMods),
+    wrapField(i18n.t("cfg.focusWait"), numberInput(p.focusWaitMs, (v) => (p.focusWaitMs = v))),
+    wrapField(i18n.t("cfg.writeMode"), select(p.writeMode ?? "auto", [
+      ["auto", i18n.t("cfg.writeAuto")],
+      ["axvalue", i18n.t("cfg.writeAx")],
+      ["clipboard_replace", i18n.t("cfg.writeReplace")],
+      ["clipboard_insert", i18n.t("cfg.writeInsert")],
     ], (v) => {
       p.writeMode = v as TargetProfile["writeMode"];
       if (v === "clipboard_insert") p.allowSelectAllReplace = false;
     })),
-    wrapField("允许全选替换", checkbox(p.allowSelectAllReplace, (v) => (p.allowSelectAllReplace = v)), "高风险：只在确认 Cmd+A 作用于输入框时开启。"),
-    wrapField("发送策略", select(p.sendMode, [
-      ["key", "按键"],
-      ["custom_shortcut", "自定义快捷键"],
-      ["accessibility_button", "点击发送按钮"],
-      ["none", "仅同步不发送"],
+    wrapField(i18n.t("cfg.allowReplace"), checkbox(p.allowSelectAllReplace, (v) => (p.allowSelectAllReplace = v)), i18n.t("cfg.allowReplaceHint")),
+    wrapField(i18n.t("cfg.sendMode"), select(p.sendMode, [
+      ["key", i18n.t("cfg.sendKey")],
+      ["custom_shortcut", i18n.t("cfg.customShortcut")],
+      ["accessibility_button", i18n.t("cfg.sendButton")],
+      ["none", i18n.t("cfg.syncOnly")],
     ], (v) => (p.sendMode = v as TargetProfile["sendMode"]))),
-    wrapField("发送快捷键 key", sendShortcutKey),
-    wrapField("发送快捷键修饰键", sendShortcutMods),
-    wrapField("发送按钮标题包含", inputWithChange(p.sendButtonTitleContains ?? "", (v) => (p.sendButtonTitleContains = v || null))),
-    wrapField("发送后清空", checkbox(p.clearAfterSend, (v) => (p.clearAfterSend = v))),
-    wrapField("允许空文本", checkbox(p.allowEmpty, (v) => (p.allowEmpty = v))),
-    wrapField("保持目标前台", checkbox(p.keepForeground, (v) => (p.keepForeground = v))),
-    wrapField("最大文本长度", numberInput(p.maxTextLength, (v) => (p.maxTextLength = v))),
+    wrapField(i18n.t("cfg.sendShortcutKey"), sendShortcutKey),
+    wrapField(i18n.t("cfg.sendShortcutMods"), sendShortcutMods),
+    wrapField(i18n.t("cfg.sendButtonContains"), inputWithChange(p.sendButtonTitleContains ?? "", (v) => (p.sendButtonTitleContains = v || null))),
+    wrapField(i18n.t("cfg.clearAfterSend"), checkbox(p.clearAfterSend, (v) => (p.clearAfterSend = v))),
+    wrapField(i18n.t("cfg.allowEmpty"), checkbox(p.allowEmpty, (v) => (p.allowEmpty = v))),
+    wrapField(i18n.t("cfg.keepForeground"), checkbox(p.keepForeground, (v) => (p.keepForeground = v))),
+    wrapField(i18n.t("cfg.maxLength"), numberInput(p.maxTextLength, (v) => (p.maxTextLength = v))),
   );
   details.append(summary, grid, advancedHint(targetId));
   return details;
@@ -414,8 +447,8 @@ function advancedHint(targetId: TargetId): HTMLElement {
   const p = document.createElement("p");
   p.className = "cfg-hint";
   p.textContent = targetId === "notion"
-    ? "Notion AI 输入框通常适合剪贴板全选替换；普通文档块请改为仅同步或光标插入，避免覆盖页面。"
-    : "不确定目标行为时，发送策略先选择“仅同步不发送”，测试写入范围后再开启发送。";
+    ? i18n.t("cfg.notionHint")
+    : i18n.t("cfg.defaultHint");
   return p;
 }
 
@@ -505,13 +538,13 @@ function splitList(v: string): string[] {
 
 function validateProfile(p: TargetProfile): string[] {
   const issues: string[] = [];
-  if (!p.bundleId.trim()) issues.push("未配置 Bundle ID");
-  if (p.focusWaitMs < 50 || p.focusWaitMs > 5000) issues.push("聚焦等待将被限制到 50-5000ms");
-  if (p.maxTextLength < 1 || p.maxTextLength > 50000) issues.push("最大文本长度将被限制到 1-50000");
+  if (!p.bundleId.trim()) issues.push(i18n.t("cfg.issueBundle"));
+  if (p.focusWaitMs < 50 || p.focusWaitMs > 5000) issues.push(i18n.t("cfg.issueFocusWait"));
+  if (p.maxTextLength < 1 || p.maxTextLength > 50000) issues.push(i18n.t("cfg.issueMaxLength"));
   if ((p.writeMode === "clipboard_replace" || p.writeMode === "clipboard_paste") && !p.allowSelectAllReplace) {
-    issues.push("剪贴板全选替换需要开启“允许全选替换”");
+    issues.push(i18n.t("cfg.issueClipboard"));
   }
-  return issues.length ? issues : ["配置看起来可以保存"];
+  return issues.length ? issues : [i18n.t("cfg.valid")];
 }
 
 function cssEscape(value: string): string {

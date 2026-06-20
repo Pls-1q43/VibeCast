@@ -7,6 +7,7 @@ import { DraftStore, getClientId, uuid } from "./store/draftStore.ts";
 import { IMEController } from "./ime/imeController.ts";
 import { Card } from "./ui/card.ts";
 import type { SyncStatus } from "./ui/status.ts";
+import { LANGUAGES, createI18n, setLang, type I18n, type Lang } from "./i18n.ts";
 
 export class App {
   private store = new DraftStore();
@@ -29,6 +30,7 @@ export class App {
   private cardList!: HTMLElement;
   private emptyState!: HTMLElement;
   private serverName = "Mac";
+  private i18n: I18n = createI18n();
 
   constructor(private mount: HTMLElement) {
     this.ws = new WSClient({
@@ -63,6 +65,7 @@ export class App {
   }
 
   private render(): void {
+    document.title = this.i18n.t("app.title");
     this.mount.innerHTML = "";
 
     const brand = document.createElement("header");
@@ -73,17 +76,17 @@ export class App {
     logo.setAttribute("aria-hidden", "true");
     const name = document.createElement("strong");
     name.textContent = "VibeCast";
-    brand.append(logo, name);
+    brand.append(logo, name, this.renderLanguagePicker());
     this.mount.append(brand);
 
     const hint = document.createElement("p");
     hint.className = "hint";
-    hint.textContent = "点击某个应用的文本框后，在输入法中点击语音按钮开始说话。识别出的文字会实时镜像到 Mac 对应应用。";
+    hint.textContent = this.i18n.t("app.hint");
     this.mount.append(hint);
 
     this.emptyState = document.createElement("section");
     this.emptyState.className = "empty-state";
-    this.emptyState.textContent = "还没有可用目标。请先在 Mac 菜单栏打开配置页面，启用 App 并绑定 Bundle ID。";
+    this.emptyState.textContent = this.i18n.t("app.empty");
     this.mount.append(this.emptyState);
 
     this.cardList = document.createElement("div");
@@ -94,6 +97,27 @@ export class App {
     this.connbar.className = "connbar";
     document.body.append(this.connbar);
     this.updateConnbar();
+  }
+
+  private renderLanguagePicker(): HTMLLabelElement {
+    const wrap = document.createElement("label");
+    wrap.className = "language-picker";
+    const span = document.createElement("span");
+    span.textContent = this.i18n.t("app.language");
+    const select = document.createElement("select");
+    for (const lang of LANGUAGES) {
+      const option = document.createElement("option");
+      option.value = lang.code;
+      option.textContent = lang.label;
+      option.selected = lang.code === this.i18n.lang;
+      select.append(option);
+    }
+    select.addEventListener("change", () => {
+      setLang(select.value as Lang);
+      location.reload();
+    });
+    wrap.append(span, select);
+    return wrap;
   }
 
   private reconcileTargets(targets: TargetInfo[]): void {
@@ -136,7 +160,7 @@ export class App {
 
   private addCard(target: TargetInfo): void {
     const id = target.id;
-    const card = new Card(id, target.displayName, {
+    const card = new Card(id, target.displayName, this.i18n, {
       onFocusTextarea: (t) => this.selectTarget(t),
       onInput: (t) => this.onCardInput(t),
       onSend: (t) => this.onSend(t),
@@ -254,7 +278,7 @@ export class App {
   private onClear(targetId: TargetId): void {
     const card = this.cards.get(targetId);
     if (!card) return;
-    if (!window.confirm("确认清空当前草稿？")) return;
+    if (!window.confirm(this.i18n.t("app.clearConfirm"))) return;
     const d = this.store.clear(targetId);
     card.setText("");
     card.refreshButtons();
@@ -330,7 +354,7 @@ export class App {
           }
         } else if (msg.errorCode && msg.errorCode !== "STALE_REVISION") {
           this.pendingSends.delete(msg.targetId);
-          card.setStatus("sync_failed", msg.message ?? msg.errorCode);
+          card.setStatus("sync_failed", this.i18n.error(msg.errorCode, msg.message));
         }
         break;
       }
@@ -344,7 +368,7 @@ export class App {
             card.setText("");
           }
         } else {
-          card.setStatus("send_failed", msg.message ?? msg.errorCode ?? null);
+          card.setStatus("send_failed", this.i18n.error(msg.errorCode, msg.message));
         }
         card.refreshButtons();
         break;
@@ -353,7 +377,7 @@ export class App {
         // 握手/校验错误：连接条提示。
         this.connbar.title = `${msg.errorCode}: ${msg.message}`;
         this.connbar.dataset.state = "disconnected";
-        this.connbar.textContent = `${msg.message}（${msg.errorCode}）`;
+        this.connbar.textContent = this.i18n.error(msg.errorCode, msg.message);
         break;
     }
   }
@@ -379,16 +403,18 @@ export class App {
     if (!this.connbar) return;
     const label =
       this.connState === "connected"
-        ? `已连接 · ${this.serverName}`
+        ? this.i18n.t("app.connected", { name: this.serverName })
         : this.connState === "connecting"
-          ? "连接中…"
-          : "未连接";
+          ? this.i18n.t("app.connecting")
+          : this.i18n.t("app.disconnected");
     this.connbar.dataset.state = this.connState;
     this.connbar.textContent = "";
     const left = document.createElement("span");
     left.textContent = label;
     const right = document.createElement("span");
-    right.textContent = this.activeTarget ? `目标：${this.targetNames.get(this.activeTarget) ?? this.activeTarget}` : "未选择目标";
+    right.textContent = this.activeTarget
+      ? this.i18n.t("app.target", { name: this.targetNames.get(this.activeTarget) ?? this.activeTarget })
+      : this.i18n.t("app.noTarget");
     this.connbar.append(left, right);
   }
 }

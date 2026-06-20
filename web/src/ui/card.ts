@@ -1,7 +1,8 @@
 // 单个目标应用卡片。PRD 5.1 / 5.2 / 5.5 / 5.6 / 5.7 / 19。
 
 import { type TargetId } from "../ws/protocol.ts";
-import { STATUS_LABEL, STATUS_TONE, type SyncStatus } from "./status.ts";
+import type { I18n } from "../i18n.ts";
+import { STATUS_TONE, type SyncStatus } from "./status.ts";
 
 export interface CardCallbacks {
   onFocusTextarea: (targetId: TargetId) => void;
@@ -22,12 +23,12 @@ export class Card {
   private status: SyncStatus = "disconnected";
   private allowEmpty = false;
 
-  constructor(targetId: TargetId, displayName: string, cb: CardCallbacks) {
+  constructor(targetId: TargetId, displayName: string, private i18n: I18n, cb: CardCallbacks) {
     this.targetId = targetId;
 
     this.root = el("section", "card");
     this.root.dataset.target = targetId;
-    this.root.setAttribute("aria-label", `${displayName} 输入卡片`);
+    this.root.setAttribute("aria-label", i18n.t("card.aria", { name: displayName }));
 
     // 头部：图标 + 名称 + 状态
     const header = el("header", "card__header");
@@ -50,7 +51,7 @@ export class Card {
     this.textarea.className = "card__textarea";
     this.textarea.rows = 4;
     this.textarea.setAttribute("aria-labelledby", labelId);
-    this.textarea.placeholder = "点击此处，使用输入法语音按钮说话";
+    this.textarea.placeholder = i18n.t("card.placeholder");
     this.textarea.autocapitalize = "off";
     this.textarea.spellcheck = false;
     this.textarea.addEventListener("focus", () => cb.onFocusTextarea(targetId));
@@ -58,9 +59,9 @@ export class Card {
 
     // 操作区
     const actions = el("div", "card__actions");
-    this.sendBtn = button("发送", "btn btn--primary", () => cb.onSend(targetId));
-    this.clearBtn = button("清空", "btn btn--ghost", () => cb.onClear(targetId));
-    this.refocusBtn = button("重新聚焦", "btn btn--ghost", () => cb.onRefocus(targetId));
+    this.sendBtn = button(i18n.t("card.send"), "btn btn--primary", () => cb.onSend(targetId));
+    this.clearBtn = button(i18n.t("card.clear"), "btn btn--ghost", () => cb.onClear(targetId));
+    this.refocusBtn = button(i18n.t("card.refocus"), "btn btn--ghost", () => cb.onRefocus(targetId));
     actions.append(this.sendBtn, this.clearBtn, this.refocusBtn);
 
     this.root.append(header, this.textarea, actions);
@@ -97,7 +98,8 @@ export class Card {
 
   setStatus(status: SyncStatus, detail?: string | null): void {
     this.status = status;
-    this.statusEl.textContent = detail ? `${STATUS_LABEL[status]}：${detail}` : STATUS_LABEL[status];
+    const label = this.i18n.status(status);
+    this.statusEl.textContent = detail ? `${label}: ${detail}` : label;
     this.statusEl.dataset.tone = STATUS_TONE[status];
     this.updateButtons();
   }
@@ -112,7 +114,11 @@ export class Card {
     // 发送：未连接/未聚焦/空文本/锁定时禁用
     this.sendBtn.disabled = !connected || !focused || !hasText || locked;
     this.sendBtn.textContent =
-      this.status === "sending" ? "发送中…" : this.status === "syncing" ? "同步中…" : "发送";
+      this.status === "sending"
+        ? this.i18n.t("card.sending")
+        : this.status === "syncing"
+          ? this.i18n.t("card.syncing")
+          : this.i18n.t("card.send");
 
     this.clearBtn.disabled = locked || !hasText;
     // 重新聚焦：仅在失焦/失败相关状态下提供
