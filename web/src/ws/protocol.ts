@@ -99,6 +99,7 @@ export type ClientMessage =
 export interface TargetInfo {
   id: TargetId;
   displayName: string;
+  iconDataUrl?: string | null;
   available: boolean;
   clearAfterSend: boolean;
   allowEmpty: boolean;
@@ -158,6 +159,7 @@ export interface PongMessage {
 export interface TargetProfile {
   displayName: string;
   bundleId: string;
+  iconDataUrl?: string | null;
   activationMode: "bundle_id";
   launchIfNotRunning: boolean;
   focusMode: "shortcut" | "accessibility" | "preserve_last_focus" | "custom";
@@ -206,6 +208,7 @@ export interface CreateTargetMessage {
   type: "create_target";
   displayName: string;
   bundleId?: string | null;
+  iconDataUrl?: string | null;
 }
 export interface DeleteTargetMessage {
   type: "delete_target";
@@ -231,6 +234,7 @@ export interface TestResultMessage {
 export interface RunningApp {
   bundleId: string;
   name: string;
+  iconDataUrl?: string | null;
 }
 export interface RunningAppsMessage {
   type: "running_apps";

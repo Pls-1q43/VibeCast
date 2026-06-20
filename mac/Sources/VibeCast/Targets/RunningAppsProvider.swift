@@ -13,7 +13,8 @@ enum RunningAppsProvider {
                   let name = app.localizedName,
                   !seen.contains(bundleId) else { continue }
             seen.insert(bundleId)
-            result.append(RunningApp(bundleId: bundleId, name: name))
+            result.append(RunningApp(bundleId: bundleId, name: name,
+                                     iconDataUrl: TargetIconProvider.iconDataURL(app: app)))
         }
         return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }

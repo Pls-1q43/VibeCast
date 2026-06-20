@@ -12,6 +12,7 @@
 - `targetId`: 目标字符串 ID。预置目标为 `codex` | `workbuddy` | `notion` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
 - `revision`: 每个 targetId 独立维护的单调递增整数，从 `1` 开始。Mac 只应用比已应用版本更高的快照。
 - 时间戳 `clientTimestamp`: 毫秒级 Unix 时间（可选，仅诊断用）。
+- 图标 `iconDataUrl`: 可选图片 data URL，仅支持 `data:image/...;base64,...`，用于目标卡片和配置页展示。
 
 错误码（`errorCode`）枚举：
 `UNPAIRED` · `BAD_TOKEN` · `BAD_MESSAGE` · `UNKNOWN_TARGET` · `APP_NOT_RUNNING` ·
@@ -40,7 +41,7 @@
   "serverName": "Jeffrey's Mac",
   "protocolVersion": 1,
   "targets": [
-    { "id": "codex", "displayName": "Codex", "available": true, "clearAfterSend": true, "allowEmpty": false },
+    { "id": "codex", "displayName": "Codex", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false },
     { "id": "workbuddy", "displayName": "WorkBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false },
     { "id": "notion", "displayName": "Notion", "available": true, "clearAfterSend": false, "allowEmpty": false },
     { "id": "codebuddy", "displayName": "CodeBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false }
@@ -48,7 +49,7 @@
   "accessibilityGranted": true
 }
 ```
-> `targets` 只返回已启用且已绑定 Bundle ID 的目标。手机端应按该列表动态渲染卡片，而不是写死四个预置目标。
+> `targets` 只返回已启用且已绑定 Bundle ID 的目标。手机端应按该列表动态渲染卡片，而不是写死四个预置目标。`iconDataUrl` 可省略，手机端应回退到预置图标或首字母图标。
 
 ### ← error (Mac → 手机，握手失败)
 ```json
@@ -200,7 +201,7 @@ Mac 规则（顺序）：
       "id": "codex",
       "kind": "preset",
       "enabled": true,
-      "profile": { "displayName": "Codex", "bundleId": "", "activationMode": "bundle_id" }
+      "profile": { "displayName": "Codex", "bundleId": "", "iconDataUrl": null, "activationMode": "bundle_id" }
     }
   ]
 }
@@ -212,9 +213,24 @@ Mac 规则（顺序）：
 ```json
 { "type": "set_config", "targetId": "codex", "profile": { "...": "..." } }
 { "type": "set_target_enabled", "targetId": "codex", "enabled": true }
-{ "type": "create_target", "displayName": "TextEdit", "bundleId": "com.apple.TextEdit" }
+{ "type": "create_target", "displayName": "TextEdit", "bundleId": "com.apple.TextEdit", "iconDataUrl": "data:image/png;base64,..." }
 { "type": "delete_target", "targetId": "custom_textedit" }
 ```
+
+### → list_running_apps
+```json
+{ "type": "list_running_apps" }
+```
+
+```json
+{
+  "type": "running_apps",
+  "apps": [
+    { "name": "TextEdit", "bundleId": "com.apple.TextEdit", "iconDataUrl": "data:image/png;base64,..." }
+  ]
+}
+```
+> `iconDataUrl` 来自 macOS 运行应用或应用包图标；读取失败时可省略。
 
 ### → get_status / open_accessibility_settings
 ```json

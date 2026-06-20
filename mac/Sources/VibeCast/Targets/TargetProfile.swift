@@ -48,6 +48,7 @@ struct KeyShortcut: Codable, Equatable {
 struct TargetProfile: Codable {
     var displayName: String
     var bundleId: String
+    var iconDataUrl: String?
     var activationMode: ActivationMode
     var launchIfNotRunning: Bool
     var focusMode: FocusMode
@@ -69,7 +70,7 @@ struct TargetProfile: Codable {
 
     // 向后兼容：旧配置文件无 writeMode 时默认 .auto。
     enum CodingKeys: String, CodingKey {
-        case displayName, bundleId, activationMode, launchIfNotRunning, focusMode, focusShortcut
+        case displayName, bundleId, iconDataUrl, activationMode, launchIfNotRunning, focusMode, focusShortcut
         case focusWaitMs, sendMode, sendShortcut, sendButtonTitleContains, clearAfterSend
         case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode
     }
@@ -78,8 +79,8 @@ struct TargetProfile: Codable {
          focusMode: FocusMode, focusShortcut: KeyShortcut?, focusWaitMs: Int, sendMode: SendMode,
          sendShortcut: KeyShortcut?, sendButtonTitleContains: String?, clearAfterSend: Bool,
          allowEmpty: Bool, keepForeground: Bool, maxTextLength: Int, allowSelectAllReplace: Bool,
-         writeMode: WriteMode) {
-        self.displayName = displayName; self.bundleId = bundleId; self.activationMode = activationMode
+         writeMode: WriteMode, iconDataUrl: String? = nil) {
+        self.displayName = displayName; self.bundleId = bundleId; self.iconDataUrl = iconDataUrl; self.activationMode = activationMode
         self.launchIfNotRunning = launchIfNotRunning; self.focusMode = focusMode; self.focusShortcut = focusShortcut
         self.focusWaitMs = focusWaitMs; self.sendMode = sendMode; self.sendShortcut = sendShortcut
         self.sendButtonTitleContains = sendButtonTitleContains; self.clearAfterSend = clearAfterSend
@@ -91,6 +92,7 @@ struct TargetProfile: Codable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         displayName = try c.decode(String.self, forKey: .displayName)
         bundleId = try c.decode(String.self, forKey: .bundleId)
+        iconDataUrl = try c.decodeIfPresent(String.self, forKey: .iconDataUrl)
         activationMode = try c.decode(ActivationMode.self, forKey: .activationMode)
         launchIfNotRunning = try c.decode(Bool.self, forKey: .launchIfNotRunning)
         focusMode = try c.decode(FocusMode.self, forKey: .focusMode)
@@ -259,13 +261,15 @@ final class TargetConfigStore {
     }
 
     @discardableResult
-    func createCustom(displayName: String, bundleId: String?) -> TargetConfigEntry {
+    func createCustom(displayName: String, bundleId: String?, iconDataUrl: String? = nil) -> TargetConfigEntry {
         let cleanName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = cleanName.isEmpty ? "Custom App" : cleanName
         let id = uniqueCustomId(base: bundleId?.isEmpty == false ? bundleId! : name)
         var profile = TargetProfile.defaultFor(id)
         profile.displayName = name
         profile.bundleId = bundleId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        profile.iconDataUrl = TargetProfile.normalizedIconDataURL(iconDataUrl)
+            ?? TargetIconProvider.iconDataURL(bundleId: profile.bundleId)
         let entry = TargetConfigEntry(id: id, kind: .custom, enabled: true, profile: profile.normalized())
         entries[id] = entry
         persist()
@@ -317,6 +321,7 @@ extension TargetProfile {
         p.displayName = p.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         if p.displayName.isEmpty { p.displayName = "Target" }
         p.bundleId = p.bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
+        p.iconDataUrl = TargetProfile.normalizedIconDataURL(p.iconDataUrl)
         p.focusWaitMs = min(max(p.focusWaitMs, 50), 5_000)
         p.maxTextLength = min(max(p.maxTextLength, 1), 50_000)
         if (p.sendMode == .key || p.sendMode == .customShortcut), p.sendShortcut == nil {
@@ -329,5 +334,21 @@ extension TargetProfile {
             p.allowSelectAllReplace = false
         }
         return p
+    }
+
+    static func normalizedIconDataURL(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard trimmed.count <= 200_000 else { return nil }
+        let allowedPrefixes = [
+            "data:image/png;base64,",
+            "data:image/jpeg;base64,",
+            "data:image/jpg;base64,",
+            "data:image/webp;base64,",
+            "data:image/svg+xml;base64,"
+        ]
+        guard allowedPrefixes.contains(where: { trimmed.lowercased().hasPrefix($0) }) else { return nil }
+        return trimmed
     }
 }

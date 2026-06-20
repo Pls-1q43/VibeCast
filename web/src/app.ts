@@ -160,7 +160,7 @@ export class App {
 
   private addCard(target: TargetInfo): void {
     const id = target.id;
-    const card = new Card(id, target.displayName, this.i18n, {
+    const card = new Card(id, target.displayName, target.iconDataUrl, this.i18n, {
       onFocusTextarea: (t) => this.selectTarget(t),
       onInput: (t) => this.onCardInput(t),
       onSend: (t) => this.onSend(t),

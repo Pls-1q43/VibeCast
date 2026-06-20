@@ -18,10 +18,12 @@ final class M7ConfigTests: XCTestCase {
         var p = TargetProfile.defaultFor(.notion)
         p.sendButtonTitleContains = "发送"
         p.allowSelectAllReplace = false
+        p.iconDataUrl = "data:image/png;base64,ZmFrZQ=="
         let data = try JSONEncoder().encode(p)
         let back = try JSONDecoder().decode(TargetProfile.self, from: data)
         XCTAssertEqual(back.sendButtonTitleContains, "发送")
         XCTAssertFalse(back.allowSelectAllReplace)
+        XCTAssertEqual(back.iconDataUrl, "data:image/png;base64,ZmFrZQ==")
     }
 
     func testSendActionNoneSyncOnlySkips() {
@@ -52,6 +54,13 @@ final class M7ConfigTests: XCTestCase {
         XCTAssertTrue(store.isUsable(entry.id))
         XCTAssertTrue(store.deleteCustom(entry.id))
         XCTAssertNil(store.entry(entry.id))
+    }
+
+    func testCustomTargetAcceptsProvidedIconDataURL() {
+        let store = TargetConfigStore(fileURL: tempConfigURL())
+        let entry = store.createCustom(displayName: "Icon App", bundleId: nil,
+                                       iconDataUrl: "data:image/png;base64,ZmFrZQ==")
+        XCTAssertEqual(entry.profile.iconDataUrl, "data:image/png;base64,ZmFrZQ==")
     }
 
     func testPresetTargetsCannotBeDeleted() {

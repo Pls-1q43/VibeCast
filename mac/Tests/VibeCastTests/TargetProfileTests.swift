@@ -52,11 +52,19 @@ final class TargetProfileTests: XCTestCase {
         p.focusWaitMs = 0
         p.maxTextLength = 100_000
         p.writeMode = .clipboardPaste
+        p.iconDataUrl = "https://example.com/icon.png"
         let normalized = p.normalized()
         XCTAssertEqual(normalized.displayName, "Target")
         XCTAssertEqual(normalized.focusWaitMs, 50)
         XCTAssertEqual(normalized.maxTextLength, 50_000)
         XCTAssertEqual(normalized.writeMode, .clipboardReplace)
+        XCTAssertNil(normalized.iconDataUrl)
+    }
+
+    func testNormalizeKeepsSafeIconDataURL() {
+        var p = TargetProfile.defaultFor(.codex)
+        p.iconDataUrl = " data:image/png;base64,ZmFrZQ== "
+        XCTAssertEqual(p.normalized().iconDataUrl, "data:image/png;base64,ZmFrZQ==")
     }
 
     func testCustomTargetIdDefaultsLikeGenericTarget() throws {

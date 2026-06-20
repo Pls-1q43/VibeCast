@@ -12,6 +12,7 @@ import {
 } from "./ws/protocol.ts";
 import { getClientId } from "./store/draftStore.ts";
 import { LANGUAGES, createI18n, setLang, type Lang } from "./i18n.ts";
+import { isSafeImageDataUrl, renderTargetIcon } from "./ui/targetIcon.ts";
 
 const mount = document.getElementById("config")!;
 const i18n = createI18n();
@@ -238,6 +239,15 @@ function renderAddTarget(): HTMLElement {
   const controls = el("div", "cfg-add__controls");
   const nameInput = input(i18n.t("cfg.customApp"), i18n.t("cfg.appName"));
   const bundleInput = input("", i18n.t("cfg.bundleExample"));
+  let iconDataUrl: string | null = null;
+  let iconPreview = renderTargetIcon("custom", nameInput.value, "cfg-row__icon", iconDataUrl);
+
+  const updatePreview = () => {
+    const next = renderTargetIcon("custom", nameInput.value || bundleInput.value || "App", "cfg-row__icon", iconDataUrl);
+    iconPreview.replaceWith(next);
+    iconPreview = next;
+  };
+  nameInput.addEventListener("input", updatePreview);
 
   const picker = select("", [["", i18n.t("cfg.pickRunning")], ...runningApps.map((a) => [a.bundleId, `${a.name} (${a.bundleId})`] as [string, string])], (v) => {
     if (!v) return;
@@ -245,7 +255,16 @@ function renderAddTarget(): HTMLElement {
     if (!app) return;
     nameInput.value = app.name;
     bundleInput.value = app.bundleId;
+    iconDataUrl = app.iconDataUrl ?? null;
+    updatePreview();
   });
+  const iconPicker = renderIconPicker(
+    () => iconDataUrl,
+    (v) => {
+      iconDataUrl = v;
+      updatePreview();
+    },
+  );
   const addBtn = button(i18n.t("cfg.add"), "btn btn--primary", () => {
     const displayName = nameInput.value.trim();
     const bundleId = bundleInput.value.trim();
@@ -253,10 +272,10 @@ function renderAddTarget(): HTMLElement {
       setStatus(i18n.t("cfg.needName"));
       return;
     }
-    send({ type: "create_target", displayName: displayName || bundleId, bundleId: bundleId || null });
+    send({ type: "create_target", displayName: displayName || bundleId, bundleId: bundleId || null, iconDataUrl });
     setStatus(i18n.t("cfg.adding", { name: displayName || bundleId }));
   });
-  controls.append(wrapField(i18n.t("cfg.appName"), nameInput), wrapField("Bundle ID", bundleInput), wrapField(i18n.t("cfg.runningApp"), picker), addBtn);
+  controls.append(iconPreview, wrapField(i18n.t("cfg.appName"), nameInput), wrapField("Bundle ID", bundleInput), wrapField(i18n.t("cfg.runningApp"), picker), iconPicker, addBtn);
   section.append(title, controls);
   return section;
 }
@@ -302,9 +321,12 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
   });
   toggle.setAttribute("aria-label", i18n.t("cfg.enabledAria", { name: p.displayName }));
 
-  const icon = el("div", "cfg-row__icon");
-  icon.textContent = (p.displayName || target.id).charAt(0).toUpperCase();
-  icon.setAttribute("aria-hidden", "true");
+  let icon = renderTargetIcon(target.id, p.displayName || target.id, "cfg-row__icon", p.iconDataUrl);
+  const updateIcon = () => {
+    const next = renderTargetIcon(target.id, p.displayName || target.id, "cfg-row__icon", p.iconDataUrl);
+    icon.replaceWith(next);
+    icon = next;
+  };
 
   const summary = el("div", "cfg-row__summary");
   const titleLine = el("div", "cfg-row__titleline");
@@ -323,6 +345,7 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
   displayName.addEventListener("input", () => {
     p.displayName = displayName.value;
     title.textContent = p.displayName || target.id;
+    updateIcon();
   });
   const bundleId = input(p.bundleId, "Bundle ID");
   bundleId.addEventListener("input", () => {
@@ -335,15 +358,25 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
     const app = runningApps.find((a) => a.bundleId === v);
     p.bundleId = v;
     bundleId.value = v;
+    p.iconDataUrl = app?.iconDataUrl ?? null;
+    updateIcon();
     if (target.kind === "custom" && app && !displayName.value.trim()) {
       p.displayName = app.name;
       displayName.value = app.name;
       title.textContent = app.name;
+      updateIcon();
     }
     badge.textContent = i18n.t("cfg.ready");
     badge.className = "cfg-badge cfg-badge--ok";
   });
-  quick.append(wrapField(i18n.t("cfg.displayName"), displayName), wrapField("Bundle ID", bundleId), wrapField(i18n.t("cfg.quickPick"), picker));
+  const iconPicker = renderIconPicker(
+    () => p.iconDataUrl ?? null,
+    (v) => {
+      p.iconDataUrl = v;
+      updateIcon();
+    },
+  );
+  quick.append(wrapField(i18n.t("cfg.displayName"), displayName), wrapField("Bundle ID", bundleId), wrapField(i18n.t("cfg.quickPick"), picker), iconPicker);
 
   const validation = el("div", "cfg-validation");
   const result = el("div", "cfg-result");
@@ -471,6 +504,86 @@ function wrapField(label: string, control: HTMLElement, hint?: string): HTMLElem
     wrap.append(small);
   }
   return wrap;
+}
+
+function renderIconPicker(getValue: () => string | null, setValue: (v: string | null) => void): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "cfg-field cfg-icon-field";
+  const span = document.createElement("span");
+  span.textContent = i18n.t("cfg.icon");
+  const actions = el("div", "cfg-icon-actions");
+  const file = document.createElement("input");
+  file.type = "file";
+  file.accept = "image/png,image/jpeg,image/webp,image/svg+xml";
+  file.addEventListener("change", async () => {
+    const selected = file.files?.[0];
+    file.value = "";
+    if (!selected) return;
+    const dataUrl = await fileToIconDataUrl(selected).catch(() => null);
+    if (!dataUrl) {
+      setStatus(i18n.t("cfg.iconInvalid"));
+      return;
+    }
+    setValue(dataUrl);
+    setStatus(i18n.t("cfg.iconUpdated"));
+  });
+  const clear = button(i18n.t("cfg.iconClear"), "btn btn--ghost cfg-icon-clear", () => {
+    if (!getValue()) return;
+    setValue(null);
+    setStatus(i18n.t("cfg.iconCleared"));
+  });
+  actions.append(file, clear);
+  wrap.append(span, actions);
+  return wrap;
+}
+
+async function fileToIconDataUrl(file: File): Promise<string | null> {
+  if (file.type === "image/svg+xml") {
+    const dataUrl = await readFileAsDataURL(file);
+    return isSafeImageDataUrl(dataUrl) ? dataUrl : null;
+  }
+
+  if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) return null;
+
+  const objectUrl = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(objectUrl);
+    const side = 96;
+    const canvas = document.createElement("canvas");
+    canvas.width = side;
+    canvas.height = side;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.clearRect(0, 0, side, side);
+    const scale = Math.min(side / img.naturalWidth, side / img.naturalHeight);
+    const width = Math.max(1, Math.round(img.naturalWidth * scale));
+    const height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const x = Math.round((side - width) / 2);
+    const y = Math.round((side - height) / 2);
+    ctx.drawImage(img, x, y, width, height);
+    const dataUrl = canvas.toDataURL("image/png");
+    return isSafeImageDataUrl(dataUrl) ? dataUrl : null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("image load failed"));
+    img.src = src;
+  });
+}
+
+function readFileAsDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("file read failed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 function input(value: string, placeholder = ""): HTMLInputElement {

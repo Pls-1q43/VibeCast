@@ -199,9 +199,10 @@ final class SessionManager: ServerDelegate {
         lock.unlock()
 
         let targets = config.activeTargets.map { entry in
-            let profile = entry.profile
+            let profile = profileWithResolvedIcon(entry.profile)
             return TargetInfo(id: entry.id, displayName: profile.displayName, available: true,
-                              clearAfterSend: profile.clearAfterSend, allowEmpty: profile.allowEmpty)
+                              clearAfterSend: profile.clearAfterSend, allowEmpty: profile.allowEmpty,
+                              iconDataUrl: profile.iconDataUrl)
         }
         send(conn, HelloAckMessage(serverName: serverName,
                                    protocolVersion: kProtocolVersion,
@@ -461,7 +462,8 @@ final class SessionManager: ServerDelegate {
 
     private func handleGetConfig(_ conn: Connection) {
         send(conn, ConfigMessage(targets: config.allTargets.map {
-            ConfigTarget(id: $0.id, kind: $0.kind, enabled: $0.enabled, profile: $0.profile)
+            ConfigTarget(id: $0.id, kind: $0.kind, enabled: $0.enabled,
+                         profile: profileWithResolvedIcon($0.profile))
         }))
     }
 
@@ -551,7 +553,8 @@ final class SessionManager: ServerDelegate {
             sendError(conn, code: .badMessage, message: "create_target 结构错误")
             return
         }
-        let entry = config.createCustom(displayName: msg.displayName, bundleId: msg.bundleId)
+        let entry = config.createCustom(displayName: msg.displayName, bundleId: msg.bundleId,
+                                        iconDataUrl: msg.iconDataUrl)
         delegate?.sessionDidLog("config created \(entry.id.rawValue) bundleId=\(entry.profile.bundleId.isEmpty ? "<empty>" : entry.profile.bundleId)")
         handleGetConfig(conn)
         delegate?.sessionConfigChanged()
@@ -590,6 +593,13 @@ final class SessionManager: ServerDelegate {
     private func send<T: Encodable>(_ conn: Connection, _ msg: T) {
         guard let data = try? ProtocolCodec.encode(msg), let s = String(data: data, encoding: .utf8) else { return }
         conn.sendText(s)
+    }
+
+    private func profileWithResolvedIcon(_ profile: TargetProfile) -> TargetProfile {
+        guard profile.iconDataUrl == nil else { return profile }
+        var p = profile
+        p.iconDataUrl = TargetIconProvider.iconDataURL(bundleId: profile.bundleId)
+        return p
     }
 
     private func sendError(_ conn: Connection, code: ErrorCode, message: String) {

@@ -153,6 +153,7 @@ struct CreateTargetMessage: Codable, Sendable {
     let type: String
     let displayName: String
     let bundleId: String?
+    let iconDataUrl: String?
 }
 
 struct DeleteTargetMessage: Codable, Sendable {
@@ -171,13 +172,16 @@ struct SetTargetEnabledMessage: Codable, Sendable {
 struct TargetInfo: Codable, Sendable {
     let id: TargetId
     let displayName: String
+    let iconDataUrl: String?
     let available: Bool
     let clearAfterSend: Bool
     let allowEmpty: Bool
 
-    init(id: TargetId, displayName: String, available: Bool, clearAfterSend: Bool = false, allowEmpty: Bool = false) {
+    init(id: TargetId, displayName: String, available: Bool, clearAfterSend: Bool = false, allowEmpty: Bool = false,
+         iconDataUrl: String? = nil) {
         self.id = id
         self.displayName = displayName
+        self.iconDataUrl = iconDataUrl
         self.available = available
         self.clearAfterSend = clearAfterSend
         self.allowEmpty = allowEmpty
@@ -250,6 +254,7 @@ struct TestResultMessage: Codable, Sendable {
 struct RunningApp: Codable, Sendable {
     let bundleId: String
     let name: String
+    let iconDataUrl: String?
 }
 
 struct RunningAppsMessage: Codable, Sendable {

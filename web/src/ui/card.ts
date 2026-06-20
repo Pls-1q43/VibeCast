@@ -3,6 +3,7 @@
 import { type TargetId } from "../ws/protocol.ts";
 import type { I18n } from "../i18n.ts";
 import { STATUS_TONE, type SyncStatus } from "./status.ts";
+import { renderTargetIcon } from "./targetIcon.ts";
 
 export interface CardCallbacks {
   onFocusTextarea: (targetId: TargetId) => void;
@@ -23,7 +24,7 @@ export class Card {
   private status: SyncStatus = "disconnected";
   private allowEmpty = false;
 
-  constructor(targetId: TargetId, displayName: string, private i18n: I18n, cb: CardCallbacks) {
+  constructor(targetId: TargetId, displayName: string, iconDataUrl: string | null | undefined, private i18n: I18n, cb: CardCallbacks) {
     this.targetId = targetId;
 
     this.root = el("section", "card");
@@ -32,9 +33,7 @@ export class Card {
 
     // 头部：图标 + 名称 + 状态
     const header = el("header", "card__header");
-    const icon = el("div", "card__icon");
-    icon.textContent = displayName.charAt(0).toUpperCase();
-    icon.setAttribute("aria-hidden", "true");
+    const icon = renderTargetIcon(targetId, displayName, "card__icon", iconDataUrl);
     const titleWrap = el("div", "card__titlewrap");
     const title = el("h2", "card__title");
     title.textContent = displayName;

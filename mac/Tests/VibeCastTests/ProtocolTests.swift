@@ -26,7 +26,9 @@ final class ProtocolTests: XCTestCase {
     }
 
     func testHelloAckEncodeRoundTrip() throws {
-        let targets = TargetId.presetIds.map { TargetInfo(id: $0, displayName: $0.rawValue, available: true) }
+        let targets = TargetId.presetIds.map {
+            TargetInfo(id: $0, displayName: $0.rawValue, available: true, iconDataUrl: "data:image/png;base64,ZmFrZQ==")
+        }
         let ack = HelloAckMessage(serverName: "Mac", protocolVersion: kProtocolVersion, targets: targets, accessibilityGranted: true)
         let data = try ProtocolCodec.encode(ack)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -35,6 +37,7 @@ final class ProtocolTests: XCTestCase {
         let first = (obj["targets"] as! [[String: Any]])[0]
         XCTAssertNotNil(first["clearAfterSend"])
         XCTAssertNotNil(first["allowEmpty"])
+        XCTAssertNotNil(first["iconDataUrl"])
     }
 
     func testAllTargetIdsCovered() {

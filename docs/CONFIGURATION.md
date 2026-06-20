@@ -25,6 +25,7 @@ VibeCast 使用目标 Profile 管理 App 的激活、聚焦、写入和发送行
 |---|---|
 | `displayName` | 手机卡片显示名称 |
 | `bundleId` | macOS 应用 Bundle ID |
+| `iconDataUrl` | 可选自定义图标 data URL；为空时使用 macOS App 图标或预置图标 |
 | `launchIfNotRunning` | 目标未运行时是否尝试启动 |
 | `focusMode` | 聚焦策略：`shortcut`、`preserve_last_focus`、`accessibility`、`custom` |
 | `focusShortcut` | 聚焦快捷键，如 `{ "modifiers": ["command"], "key": "l" }` |
