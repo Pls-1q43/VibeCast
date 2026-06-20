@@ -75,6 +75,21 @@ enum TextWriter {
             return .failed("无法将目标置于前台（粘贴需要）")
         }
 
+        // 全选输入框内容（Cmd+A 仅作用于已聚焦输入框）。
+        guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "a")) else {
+            return .failed("无法发送全选")
+        }
+        Thread.sleep(forTimeInterval: 0.04)
+
+        if text.isEmpty {
+            // 清空：全选后按删除键。粘贴空串在 contenteditable 中不会删除选中内容。
+            guard KeyboardSynth.press(KeyShortcut(modifiers: [], key: "delete")) else {
+                return .failed("无法发送删除")
+            }
+            Thread.sleep(forTimeInterval: 0.06)
+            return .applied(method: "clear")
+        }
+
         let pasteboard = NSPasteboard.general
         let savedItems = backupPasteboard(pasteboard)
         defer { restorePasteboard(pasteboard, items: savedItems) }
@@ -83,10 +98,6 @@ enum TextWriter {
         pasteboard.setString(text, forType: .string)
         Thread.sleep(forTimeInterval: 0.03)
 
-        guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "a")) else {
-            return .failed("无法发送全选")
-        }
-        Thread.sleep(forTimeInterval: 0.04)
         guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "v")) else {
             return .failed("无法发送粘贴")
         }

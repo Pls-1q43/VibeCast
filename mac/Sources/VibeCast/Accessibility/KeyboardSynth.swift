@@ -13,6 +13,8 @@ enum KeyboardSynth {
         "tab": CGKeyCode(kVK_Tab),
         "space": CGKeyCode(kVK_Space),
         "escape": CGKeyCode(kVK_Escape),
+        "delete": CGKeyCode(kVK_Delete),        // 退格删除（删除选中内容）
+        "forwarddelete": CGKeyCode(kVK_ForwardDelete),
         "a": CGKeyCode(kVK_ANSI_A), "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
         "n": CGKeyCode(kVK_ANSI_N), "j": CGKeyCode(kVK_ANSI_J), "i": CGKeyCode(kVK_ANSI_I),
         "v": CGKeyCode(kVK_ANSI_V),
