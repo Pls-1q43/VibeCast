@@ -1,5 +1,5 @@
-// 会话与协议分发。M2：hello 握手 + 令牌校验 + 单一活动会话约束。
-// M3：select_target → 应用激活 + 聚焦 + 绑定校验。text_snapshot/send 仍为桩（M4/M5）。
+// 会话与协议分发：hello 握手、令牌校验、单一活动控制端、目标绑定、
+// revision 门控、发送幂等和发布版安全护栏。
 
 import Foundation
 
@@ -36,7 +36,10 @@ final class SessionManager: ServerDelegate {
     private var revisionGate = RevisionGate()
     /// 发送决策与幂等去重（PRD 11.4 / 16.6）。
     private var sendGate = SendGate()
+    /// 每连接消息速率限制，避免旧页面/异常客户端刷爆控制通道。
+    private var rateLimiters: [UUID: MessageRateLimiter] = [:]
     private let lock = NSLock()
+    private let maxMessageBytes = 128 * 1024
 
     init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore()) {
         self.serverName = serverName
@@ -52,12 +55,29 @@ final class SessionManager: ServerDelegate {
 
     func server(_ server: Server, didReceiveText text: String, from conn: Connection) {
         guard let data = text.data(using: .utf8) else { return }
+        guard data.count <= maxMessageBytes else {
+            sendError(conn, code: .badMessage, message: "消息过大")
+            conn.close()
+            return
+        }
+
         let type: String
         do {
             type = try ProtocolCodec.messageType(of: data)
         } catch {
             sendError(conn, code: .badMessage, message: "无法解析消息")
             return
+        }
+
+        if type != "hello" {
+            guard isPaired(conn) else {
+                sendError(conn, code: .unpaired, message: "请先完成配对握手")
+                return
+            }
+            guard allowMessage(from: conn) else {
+                sendError(conn, code: .rateLimited, message: "消息过于频繁")
+                return
+            }
         }
 
         switch type {
@@ -84,6 +104,16 @@ final class SessionManager: ServerDelegate {
             handleTestTarget(conn, data: data)
         case "list_running_apps":
             handleListRunningApps(conn)
+        case "get_status":
+            handleGetStatus(conn)
+        case "open_accessibility_settings":
+            handleOpenAccessibilitySettings()
+        case "create_target":
+            handleCreateTarget(conn, data: data)
+        case "delete_target":
+            handleDeleteTarget(conn, data: data)
+        case "set_target_enabled":
+            handleSetTargetEnabled(conn, data: data)
         default:
             sendError(conn, code: .badMessage, message: "未知消息类型: \(type)")
         }
@@ -92,7 +122,11 @@ final class SessionManager: ServerDelegate {
     func server(_ server: Server, didClose conn: Connection) {
         lock.lock()
         paired.removeValue(forKey: conn.id)
-        if activeControllerId == conn.id { activeControllerId = nil }
+        rateLimiters.removeValue(forKey: conn.id)
+        if activeControllerId == conn.id {
+            activeControllerId = nil
+            activeBinding = nil
+        }
         let count = paired.count
         lock.unlock()
         delegate?.sessionPairedCountChanged(count)
@@ -119,6 +153,21 @@ final class SessionManager: ServerDelegate {
         delegate?.sessionDidLog("system did wake: 等待手机重连并重新选目标")
     }
 
+    /// 令牌撤销/轮换后调用：关闭已配对页面，清空活动绑定。
+    func revokePairings() {
+        lock.lock()
+        let conns = Array(paired.values)
+        paired.removeAll()
+        rateLimiters.removeAll()
+        activeControllerId = nil
+        activeBinding = nil
+        let count = paired.count
+        lock.unlock()
+        for conn in conns { conn.close() }
+        delegate?.sessionPairedCountChanged(count)
+        delegate?.sessionDidLog("pairings revoked")
+    }
+
     // MARK: - 消息处理
 
     private func handleHello(_ conn: Connection, data: Data) {
@@ -138,6 +187,7 @@ final class SessionManager: ServerDelegate {
 
         lock.lock()
         paired[conn.id] = conn
+        rateLimiters[conn.id] = MessageRateLimiter()
         // 单一活动会话（PRD 12.2）：最新完成握手的连接接管控制权。
         // 单用户场景下，用户最后打开/重连的页面即其想操作的会话；
         // 旧连接（可能是残留/已切后台的标签页）让出控制，避免新页面被 RATE_LIMITED 卡死。
@@ -148,8 +198,10 @@ final class SessionManager: ServerDelegate {
         let count = paired.count
         lock.unlock()
 
-        let targets = TargetId.allCases.map {
-            TargetInfo(id: $0, displayName: config.profile($0).displayName, available: true)
+        let targets = config.activeTargets.map { entry in
+            let profile = entry.profile
+            return TargetInfo(id: entry.id, displayName: profile.displayName, available: true,
+                              clearAfterSend: profile.clearAfterSend, allowEmpty: profile.allowEmpty)
         }
         send(conn, HelloAckMessage(serverName: serverName,
                                    protocolVersion: kProtocolVersion,
@@ -168,9 +220,14 @@ final class SessionManager: ServerDelegate {
             return
         }
         // 仅活动控制端可操作目标（单一活动会话）。
-        lock.lock(); let isActive = (activeControllerId == conn.id); lock.unlock()
-        guard isActive else {
+        guard ensureActive(conn) else {
             sendError(conn, code: .rateLimited, message: "非活动会话，暂不可操作")
+            return
+        }
+        guard config.isUsable(env.targetId) else {
+            send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
+                                           status: .error, errorCode: .unknownTarget,
+                                           message: "目标未启用或尚未配置 Bundle ID"))
             return
         }
 
@@ -248,6 +305,12 @@ final class SessionManager: ServerDelegate {
 
     /// 核心写入流程：Revision 校验 → 绑定校验 → TextWriter 写入 → text_ack。
     private func applyText(_ conn: Connection, sessionId: String, targetId: TargetId, revision: Int, text: String) {
+        guard config.isUsable(targetId) else {
+            send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                      revision: revision, applied: false, errorCode: .unknownTarget,
+                                      message: "目标未启用或尚未配置 Bundle ID", verified: false))
+            return
+        }
         // 1) Revision 单调校验（旧包丢弃，PRD 12.1）。
         lock.lock()
         let shouldApply = revisionGate.shouldApply(targetId, revision: revision)
@@ -260,10 +323,11 @@ final class SessionManager: ServerDelegate {
             return
         }
 
-        // 2) 绑定存在且目标匹配？
-        guard let binding, binding.targetId == targetId else {
+        // 2) 绑定存在，且目标/session 均匹配？
+        guard let binding, binding.targetId == targetId, binding.sessionId == sessionId else {
             send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
-                                      revision: revision, applied: false, errorCode: .targetNotFocused))
+                                      revision: revision, applied: false, errorCode: .targetNotFocused,
+                                      message: "目标会话已失效", verified: false))
             return
         }
 
@@ -272,15 +336,16 @@ final class SessionManager: ServerDelegate {
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
-            // clipboard_paste 会自行重新激活目标，放宽前台校验（控制端常在另一设备/窗口）。
-            let requireFrontmost = (prof.writeMode != .clipboardPaste)
+            // 剪贴板写入会自行重新激活目标，放宽前台校验（控制端常在另一设备/窗口）。
+            let requireFrontmost = !prof.writeMode.usesClipboard
             guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
                 self.send(conn, TargetStatusMessage(sessionId: sessionId, targetId: targetId,
                                                     status: .notFocused, errorCode: .targetNotFocused,
                                                     message: "目标失焦"))
                 self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
-                                               revision: revision, applied: false, errorCode: .targetNotFocused))
+                                               revision: revision, applied: false, errorCode: .targetNotFocused,
+                                               message: "目标失焦", verified: false))
                 return
             }
 
@@ -291,11 +356,13 @@ final class SessionManager: ServerDelegate {
                 self.lock.lock(); self.revisionGate.markApplied(targetId, revision: revision); self.lock.unlock()
                 self.delegate?.sessionDidLog("text_applied \(targetId.rawValue) rev=\(revision) \(DiagnosticsLog.textDigest(text)) via=\(method)")
                 self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
-                                               revision: revision, applied: true, errorCode: nil))
+                                               revision: revision, applied: true, errorCode: nil,
+                                               message: nil, verified: !method.contains("unverified")))
             case .failed(let m):
                 self.delegate?.sessionDidLog("text_write_failed \(targetId.rawValue) rev=\(revision): \(m)")
                 self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
-                                               revision: revision, applied: false, errorCode: .writeFailed))
+                                               revision: revision, applied: false, errorCode: .writeFailed,
+                                               message: m, verified: false))
             }
         }
     }
@@ -308,6 +375,12 @@ final class SessionManager: ServerDelegate {
         }
         let targetId = msg.targetId
         let revision = msg.revision
+        guard config.isUsable(targetId) else {
+            send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
+                                         revision: revision, success: false, errorCode: .unknownTarget,
+                                         message: "目标未启用或尚未配置 Bundle ID"))
+            return
+        }
 
         lock.lock()
         let decision = sendGate.decide(sessionId: msg.sessionId, targetId: targetId,
@@ -332,11 +405,11 @@ final class SessionManager: ServerDelegate {
             break
         }
 
-        // 绑定存在且匹配？
-        guard let binding, binding.targetId == targetId else {
+        // 绑定存在，且目标/session 均匹配？
+        guard let binding, binding.targetId == targetId, binding.sessionId == msg.sessionId else {
             send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
                                          revision: revision, success: false, errorCode: .targetNotFocused,
-                                         message: "目标未聚焦"))
+                                         message: "目标会话已失效"))
             return
         }
 
@@ -346,8 +419,8 @@ final class SessionManager: ServerDelegate {
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
-            // clipboard_paste 目标的 SendAction 会自行重新激活，放宽前台校验。
-            let requireFrontmost = (profile.writeMode != .clipboardPaste)
+            // 剪贴板写入目标的 SendAction 会自行重新激活，放宽前台校验。
+            let requireFrontmost = !profile.writeMode.usesClipboard
             guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
                 self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
@@ -386,9 +459,9 @@ final class SessionManager: ServerDelegate {
     // MARK: - 配置读写（PRD 20）
 
     private func handleGetConfig(_ conn: Connection) {
-        var dict: [String: TargetProfile] = [:]
-        for id in TargetId.allCases { dict[id.rawValue] = config.profile(id) }
-        send(conn, ConfigMessage(profiles: dict))
+        send(conn, ConfigMessage(targets: config.allTargets.map {
+            ConfigTarget(id: $0.id, kind: $0.kind, enabled: $0.enabled, profile: $0.profile)
+        }))
     }
 
     private func handleSetConfig(_ conn: Connection, data: Data) {
@@ -396,8 +469,12 @@ final class SessionManager: ServerDelegate {
             sendError(conn, code: .badMessage, message: "set_config 结构错误")
             return
         }
-        config.update(msg.targetId, msg.profile)
-        delegate?.sessionDidLog("config updated \(msg.targetId.rawValue) bundleId=\(msg.profile.bundleId.isEmpty ? "<empty>" : msg.profile.bundleId)")
+        let profile = msg.profile.normalized()
+        guard config.update(msg.targetId, profile) else {
+            sendError(conn, code: .unknownTarget, message: "未知目标: \(msg.targetId.rawValue)")
+            return
+        }
+        delegate?.sessionDidLog("config updated \(msg.targetId.rawValue) bundleId=\(profile.bundleId.isEmpty ? "<empty>" : profile.bundleId)")
         // 回写最新全量配置，便于配置页确认。
         handleGetConfig(conn)
         delegate?.sessionConfigChanged()
@@ -407,6 +484,10 @@ final class SessionManager: ServerDelegate {
     private func handleTestTarget(_ conn: Connection, data: Data) {
         guard let msg = try? ProtocolCodec.decoder.decode(TestTargetMessage.self, from: data) else {
             sendError(conn, code: .badMessage, message: "test_target 结构错误")
+            return
+        }
+        guard config.entry(msg.targetId) != nil else {
+            sendError(conn, code: .unknownTarget, message: "未知目标: \(msg.targetId.rawValue)")
             return
         }
         guard AccessibilityPermission.isGranted else {
@@ -453,6 +534,56 @@ final class SessionManager: ServerDelegate {
         send(conn, RunningAppsMessage(apps: apps))
     }
 
+    private func handleGetStatus(_ conn: Connection) {
+        send(conn, ServerStatusMessage(serverName: serverName,
+                                       accessibilityGranted: AccessibilityPermission.isGranted))
+    }
+
+    private func handleOpenAccessibilitySettings() {
+        DispatchQueue.main.async {
+            AccessibilityPermission.openSettings()
+        }
+    }
+
+    private func handleCreateTarget(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(CreateTargetMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "create_target 结构错误")
+            return
+        }
+        let entry = config.createCustom(displayName: msg.displayName, bundleId: msg.bundleId)
+        delegate?.sessionDidLog("config created \(entry.id.rawValue) bundleId=\(entry.profile.bundleId.isEmpty ? "<empty>" : entry.profile.bundleId)")
+        handleGetConfig(conn)
+        delegate?.sessionConfigChanged()
+    }
+
+    private func handleDeleteTarget(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(DeleteTargetMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "delete_target 结构错误")
+            return
+        }
+        guard config.deleteCustom(msg.targetId) else {
+            sendError(conn, code: .badMessage, message: "只能删除自定义目标")
+            return
+        }
+        delegate?.sessionDidLog("config deleted \(msg.targetId.rawValue)")
+        handleGetConfig(conn)
+        delegate?.sessionConfigChanged()
+    }
+
+    private func handleSetTargetEnabled(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(SetTargetEnabledMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "set_target_enabled 结构错误")
+            return
+        }
+        guard config.setEnabled(msg.targetId, enabled: msg.enabled) else {
+            sendError(conn, code: .unknownTarget, message: "未知目标: \(msg.targetId.rawValue)")
+            return
+        }
+        delegate?.sessionDidLog("config enabled \(msg.targetId.rawValue)=\(msg.enabled)")
+        handleGetConfig(conn)
+        delegate?.sessionConfigChanged()
+    }
+
     // MARK: - 发送辅助
 
     private func send<T: Encodable>(_ conn: Connection, _ msg: T) {
@@ -462,6 +593,24 @@ final class SessionManager: ServerDelegate {
 
     private func sendError(_ conn: Connection, code: ErrorCode, message: String) {
         send(conn, ErrorMessage(errorCode: code, message: message))
+    }
+
+    private func isPaired(_ conn: Connection) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return paired[conn.id] != nil
+    }
+
+    private func ensureActive(_ conn: Connection) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return activeControllerId == conn.id
+    }
+
+    private func allowMessage(from conn: Connection) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        var limiter = rateLimiters[conn.id] ?? MessageRateLimiter()
+        let ok = limiter.allow(nowMs: Int64(Date().timeIntervalSince1970 * 1000))
+        rateLimiters[conn.id] = limiter
+        return ok
     }
 
     var pairedCount: Int {

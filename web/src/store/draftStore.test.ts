@@ -61,6 +61,14 @@ describe("DraftStore", () => {
     expect(s2.get("codex").revision).toBe(1);
   });
 
+  it("persists custom target drafts across instances", () => {
+    const s1 = new DraftStore();
+    s1.update("custom_textedit", "自定义目标草稿", 7, 7);
+    const s2 = new DraftStore();
+    expect(s2.get("custom_textedit").text).toBe("自定义目标草稿");
+    expect(s2.get("custom_textedit").selectionStart).toBe(7);
+  });
+
   it("clear empties text and bumps revision", () => {
     const s = new DraftStore();
     s.update("codex", "to be cleared", 0, 0);

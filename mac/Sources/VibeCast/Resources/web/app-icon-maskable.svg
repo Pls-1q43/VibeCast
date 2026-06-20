@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">VibeCast maskable app icon</title>
+  <desc id="desc">A full-bleed VibeCast icon optimized for Android home-screen masks.</desc>
+  <rect width="1024" height="1024" fill="#0F172A"/>
+  <path d="M0 0h1024v498C855 431 692 435 541 530 362 643 192 645 0 548V0z" fill="#0D9488"/>
+  <path d="M0 710c144-87 303-95 472-20 192 85 352 78 552-43v377H0V710z" fill="#E11D48"/>
+  <path d="M704 0h320v386c-93-13-178-46-253-100-60-43-101-114-67-286z" fill="#2563EB"/>
+  <path d="M346 306h332c73 0 132 59 132 132v148c0 73-59 132-132 132H420c-27 0-48 11-63 33l-97 83c-22 15-47-11-32-34l58-90c-44-24-72-71-72-124V438c0-73 59-132 132-132z" fill="#FFFFFF"/>
+  <rect x="326" y="442" width="50" height="142" rx="25" fill="#0D9488"/>
+  <rect x="410" y="388" width="50" height="250" rx="25" fill="#E11D48"/>
+  <rect x="494" y="464" width="50" height="98" rx="25" fill="#2563EB"/>
+  <rect x="638" y="388" width="62" height="250" rx="31" fill="#0F172A"/>
+</svg>

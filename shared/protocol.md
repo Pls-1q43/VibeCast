@@ -9,7 +9,7 @@
 
 - `protocolVersion`: 当前为 `1`
 - `sessionId`: 由手机端生成的 UUID，标识一次「目标编辑会话」。切换目标 = 新会话。
-- `targetId`: 四个固定值之一 → `codex` | `workbuddy` | `notion` | `codebuddy`
+- `targetId`: 目标字符串 ID。预置目标为 `codex` | `workbuddy` | `notion` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
 - `revision`: 每个 targetId 独立维护的单调递增整数，从 `1` 开始。Mac 只应用比已应用版本更高的快照。
 - 时间戳 `clientTimestamp`: 毫秒级 Unix 时间（可选，仅诊断用）。
 
@@ -40,14 +40,15 @@
   "serverName": "Jeffrey's Mac",
   "protocolVersion": 1,
   "targets": [
-    { "id": "codex", "displayName": "Codex", "available": true },
-    { "id": "workbuddy", "displayName": "WorkBuddy", "available": true },
-    { "id": "notion", "displayName": "Notion", "available": true },
-    { "id": "codebuddy", "displayName": "CodeBuddy", "available": true }
+    { "id": "codex", "displayName": "Codex", "available": true, "clearAfterSend": true, "allowEmpty": false },
+    { "id": "workbuddy", "displayName": "WorkBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false },
+    { "id": "notion", "displayName": "Notion", "available": true, "clearAfterSend": false, "allowEmpty": false },
+    { "id": "codebuddy", "displayName": "CodeBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false }
   ],
   "accessibilityGranted": true
 }
 ```
+> `targets` 只返回已启用且已绑定 Bundle ID 的目标。手机端应按该列表动态渲染卡片，而不是写死四个预置目标。
 
 ### ← error (Mac → 手机，握手失败)
 ```json
@@ -108,7 +109,9 @@ Mac 规则：
   "targetId": "codex",
   "revision": 23,
   "applied": true,
-  "errorCode": null
+  "errorCode": null,
+  "message": null,
+  "verified": true
 }
 ```
 
@@ -171,4 +174,54 @@ Mac 规则（顺序）：
 
 ## 7. 安全校验（Mac 端对每条消息）
 
-必须校验：配对令牌、消息结构合法、targetId 合法、sessionId 存在、revision 单调、text 长度上限（默认 ≤ 10000，可配置）、消息频率（超限回 `RATE_LIMITED`）。
+必须校验：配对令牌、消息结构合法、targetId 合法、sessionId 与当前绑定一致、revision 单调、text 长度上限（默认 ≤ 10000，可配置）、消息频率（超限回 `RATE_LIMITED`）。
+
+0.1 发布版约束：
+- 除 `hello` 外，未完成配对的 WebSocket 消息必须返回 `UNPAIRED`。
+- 新配对页面接管控制权后，旧活动绑定失效。
+- 令牌重新生成后，已配对连接必须断开，旧页面需重新使用新地址。
+- 超大文本帧或过大 JSON 消息会被拒绝或关闭连接。
+
+---
+
+## 8. 配置页消息
+
+### → get_config
+```json
+{ "type": "get_config" }
+```
+
+### ← config
+```json
+{
+  "type": "config",
+  "targets": [
+    {
+      "id": "codex",
+      "kind": "preset",
+      "enabled": true,
+      "profile": { "displayName": "Codex", "bundleId": "", "activationMode": "bundle_id" }
+    }
+  ]
+}
+```
+
+`kind` 为 `preset` 或 `custom`。预置目标可停用但不可删除；自定义目标可创建、启用、停用和删除。
+
+### → set_config / set_target_enabled / create_target / delete_target
+```json
+{ "type": "set_config", "targetId": "codex", "profile": { "...": "..." } }
+{ "type": "set_target_enabled", "targetId": "codex", "enabled": true }
+{ "type": "create_target", "displayName": "TextEdit", "bundleId": "com.apple.TextEdit" }
+{ "type": "delete_target", "targetId": "custom_textedit" }
+```
+
+### → get_status / open_accessibility_settings
+```json
+{ "type": "get_status" }
+{ "type": "open_accessibility_settings" }
+```
+
+```json
+{ "type": "server_status", "serverName": "Jeffrey's Mac", "accessibilityGranted": true }
+```

@@ -5,11 +5,48 @@ import Foundation
 
 let kProtocolVersion = 1
 
-enum TargetId: String, Codable, CaseIterable, Sendable {
-    case codex
-    case workbuddy
-    case notion
-    case codebuddy
+struct TargetId: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStringLiteral {
+    let rawValue: String
+
+    static let codex = TargetId(rawValue: "codex")!
+    static let workbuddy = TargetId(rawValue: "workbuddy")!
+    static let notion = TargetId(rawValue: "notion")!
+    static let codebuddy = TargetId(rawValue: "codebuddy")!
+    static let presetIds: [TargetId] = [.codex, .workbuddy, .notion, .codebuddy]
+
+    init?(_ rawValue: String) {
+        self.init(rawValue: rawValue)
+    }
+
+    init?(rawValue: String) {
+        guard TargetId.isValid(rawValue) else { return nil }
+        self.rawValue = rawValue
+    }
+
+    init(stringLiteral value: String) {
+        self.init(rawValue: value)!
+    }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        guard let id = TargetId(rawValue: value) else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath,
+                                                    debugDescription: "非法 targetId: \(value)"))
+        }
+        self = id
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(rawValue)
+    }
+
+    private static func isValid(_ value: String) -> Bool {
+        guard (2...64).contains(value.count) else { return false }
+        return value.allSatisfy { ch in
+            ch.isLetter || ch.isNumber || ch == "_" || ch == "-" || ch == "."
+        }
+    }
 }
 
 enum ErrorCode: String, Codable, Sendable {
@@ -104,12 +141,47 @@ struct ListRunningAppsMessage: Codable, Sendable {
     let type: String
 }
 
+struct GetStatusMessage: Codable, Sendable {
+    let type: String
+}
+
+struct OpenAccessibilitySettingsMessage: Codable, Sendable {
+    let type: String
+}
+
+struct CreateTargetMessage: Codable, Sendable {
+    let type: String
+    let displayName: String
+    let bundleId: String?
+}
+
+struct DeleteTargetMessage: Codable, Sendable {
+    let type: String
+    let targetId: TargetId
+}
+
+struct SetTargetEnabledMessage: Codable, Sendable {
+    let type: String
+    let targetId: TargetId
+    let enabled: Bool
+}
+
 // MARK: - Mac → 手机
 
 struct TargetInfo: Codable, Sendable {
     let id: TargetId
     let displayName: String
     let available: Bool
+    let clearAfterSend: Bool
+    let allowEmpty: Bool
+
+    init(id: TargetId, displayName: String, available: Bool, clearAfterSend: Bool = false, allowEmpty: Bool = false) {
+        self.id = id
+        self.displayName = displayName
+        self.available = available
+        self.clearAfterSend = clearAfterSend
+        self.allowEmpty = allowEmpty
+    }
 }
 
 struct HelloAckMessage: Codable, Sendable {
@@ -136,6 +208,8 @@ struct TextAckMessage: Codable, Sendable {
     let revision: Int
     let applied: Bool
     let errorCode: ErrorCode?
+    var message: String? = nil
+    var verified: Bool? = nil
 }
 
 struct SendResultMessage: Codable, Sendable {
@@ -162,7 +236,7 @@ struct PongMessage: Codable, Sendable {
 // 配置相关（Mac → 手机配置页）
 struct ConfigMessage: Codable, Sendable {
     var type = "config"
-    let profiles: [String: TargetProfile] // key = targetId.rawValue
+    let targets: [ConfigTarget]
 }
 
 struct TestResultMessage: Codable, Sendable {
@@ -181,6 +255,24 @@ struct RunningApp: Codable, Sendable {
 struct RunningAppsMessage: Codable, Sendable {
     var type = "running_apps"
     let apps: [RunningApp]
+}
+
+enum TargetKind: String, Codable, Sendable {
+    case preset
+    case custom
+}
+
+struct ConfigTarget: Codable, Sendable {
+    let id: TargetId
+    let kind: TargetKind
+    let enabled: Bool
+    let profile: TargetProfile
+}
+
+struct ServerStatusMessage: Codable, Sendable {
+    var type = "server_status"
+    let serverName: String
+    let accessibilityGranted: Bool
 }
 
 // MARK: - 解码分发

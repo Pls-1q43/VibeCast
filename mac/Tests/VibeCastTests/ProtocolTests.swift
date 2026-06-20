@@ -26,17 +26,43 @@ final class ProtocolTests: XCTestCase {
     }
 
     func testHelloAckEncodeRoundTrip() throws {
-        let targets = TargetId.allCases.map { TargetInfo(id: $0, displayName: $0.rawValue, available: true) }
+        let targets = TargetId.presetIds.map { TargetInfo(id: $0, displayName: $0.rawValue, available: true) }
         let ack = HelloAckMessage(serverName: "Mac", protocolVersion: kProtocolVersion, targets: targets, accessibilityGranted: true)
         let data = try ProtocolCodec.encode(ack)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(obj["type"] as? String, "hello_ack")
         XCTAssertEqual((obj["targets"] as? [[String: Any]])?.count, 4)
+        let first = (obj["targets"] as! [[String: Any]])[0]
+        XCTAssertNotNil(first["clearAfterSend"])
+        XCTAssertNotNil(first["allowEmpty"])
     }
 
     func testAllTargetIdsCovered() {
-        XCTAssertEqual(Set(TargetId.allCases.map(\.rawValue)),
+        XCTAssertEqual(Set(TargetId.presetIds.map(\.rawValue)),
                        ["codex", "workbuddy", "notion", "codebuddy"])
+    }
+
+    func testCustomTargetIdDecode() throws {
+        let json = """
+        {"type":"select_target","sessionId":"s1","targetId":"custom_textedit"}
+        """.data(using: .utf8)!
+        let msg = try ProtocolCodec.decoder.decode(SelectTargetMessage.self, from: json)
+        XCTAssertEqual(msg.targetId.rawValue, "custom_textedit")
+    }
+
+    func testInvalidTargetIdRejected() {
+        let json = """
+        {"type":"select_target","sessionId":"s1","targetId":"bad target"}
+        """.data(using: .utf8)!
+        XCTAssertThrowsError(try ProtocolCodec.decoder.decode(SelectTargetMessage.self, from: json))
+    }
+
+    func testConfigMessageEncodesTargetsArray() throws {
+        let entry = ConfigTarget(id: .codex, kind: .preset, enabled: true, profile: .defaultFor(.codex))
+        let data = try ProtocolCodec.encode(ConfigMessage(targets: [entry]))
+        let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(obj["type"] as? String, "config")
+        XCTAssertEqual((obj["targets"] as? [[String: Any]])?.count, 1)
     }
 
     func testSendResultFailureDecode() throws {

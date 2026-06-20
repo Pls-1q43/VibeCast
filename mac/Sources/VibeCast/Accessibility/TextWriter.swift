@@ -16,15 +16,19 @@ enum WriteResult {
 enum TextWriter {
 
     /// 把完整文本写入已校验有效的绑定目标。调用方必须先 FocusController.validate 通过。
-    /// - writeMode: 写入策略（auto / axValue / clipboardPaste）。
+    /// - writeMode: 写入策略（auto / axValue / clipboardReplace / clipboardInsert）。
     /// - allowSelectAllReplace: auto 模式下 AXValue 失败时是否允许 Cmd+A 全选替换。
     static func write(_ text: String, to binding: TargetBinding,
                       writeMode: WriteMode = .auto, allowSelectAllReplace: Bool = true) -> WriteResult {
         switch writeMode {
-        case .clipboardPaste:
-            // Electron/contenteditable（如 Notion AI 对话框）：直接走"输入框内全选+粘贴"。
-            // Cmd+A 在已聚焦的单输入框内只选中该框内容，不会选中整页文档。
-            return writeViaClipboard(text, to: binding)
+        case .clipboardReplace, .clipboardPaste:
+            guard allowSelectAllReplace else {
+                return .failed("该目标未允许全选替换，拒绝执行剪贴板替换")
+            }
+            return writeViaClipboardReplacing(text, to: binding)
+
+        case .clipboardInsert:
+            return writeViaClipboardInsert(text, to: binding)
 
         case .axValue:
             if AXSupport.isValueSettable(binding.element), AXSupport.setValue(binding.element, text),
@@ -45,7 +49,7 @@ enum TextWriter {
             guard allowSelectAllReplace else {
                 return .failed("AXValue 直写失败且该目标禁止全选替换（保护整页文档）")
             }
-            return writeViaClipboard(text, to: binding)
+            return writeViaClipboardReplacing(text, to: binding)
         }
     }
 
@@ -57,25 +61,12 @@ enum TextWriter {
 
     // MARK: - 剪贴板降级（PRD 10.2）
 
-    private static func writeViaClipboard(_ text: String, to binding: TargetBinding) -> WriteResult {
-        // 合成键盘事件会发给"当前前台应用"。手机操作时目标常已不在前台，
-        // 因此粘贴前必须把目标重新激活到前台（我们持有其 pid，激活是安全的）。
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid {
-            if let app = NSRunningApplication(processIdentifier: binding.pid) {
-                app.activate(options: [])
-                // 等待前台切换生效。
-                var waited = 0.0
-                while NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid && waited < 0.6 {
-                    Thread.sleep(forTimeInterval: 0.03); waited += 0.03
-                }
-            }
-        }
-        guard NSWorkspace.shared.frontmostApplication?.processIdentifier == binding.pid else {
-            DiagnosticsLog.shared.log("clipboard write: 无法把目标激活到前台 pid=\(binding.pid)")
+    private static func writeViaClipboardReplacing(_ text: String, to binding: TargetBinding) -> WriteResult {
+        guard activateBindingApp(binding) else {
             return .failed("无法将目标置于前台（粘贴需要）")
         }
 
-        // 全选输入框内容（Cmd+A 仅作用于已聚焦输入框）。
+        // 全选输入框内容（仅在配置显式允许时使用）。
         guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "a")) else {
             return .failed("无法发送全选")
         }
@@ -90,6 +81,40 @@ enum TextWriter {
             return .applied(method: "clear")
         }
 
+        return pasteText(text, to: binding, method: "clipboard_replace")
+    }
+
+    private static func writeViaClipboardInsert(_ text: String, to binding: TargetBinding) -> WriteResult {
+        guard activateBindingApp(binding) else {
+            return .failed("无法将目标置于前台（粘贴需要）")
+        }
+        guard !text.isEmpty else {
+            return .applied(method: "clipboard_insert_noop")
+        }
+        return pasteText(text, to: binding, method: "clipboard_insert_unverified")
+    }
+
+    private static func activateBindingApp(_ binding: TargetBinding) -> Bool {
+        // 合成键盘事件会发给"当前前台应用"。手机操作时目标常已不在前台，
+        // 因此粘贴前必须把目标重新激活到前台（我们持有其 pid，激活是安全的）。
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid {
+            if let app = NSRunningApplication(processIdentifier: binding.pid) {
+                app.activate(options: [])
+                // 等待前台切换生效。
+                var waited = 0.0
+                while NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid && waited < 0.6 {
+                    Thread.sleep(forTimeInterval: 0.03); waited += 0.03
+                }
+            }
+        }
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != binding.pid {
+            DiagnosticsLog.shared.log("clipboard write: 无法把目标激活到前台 pid=\(binding.pid)")
+            return false
+        }
+        return true
+    }
+
+    private static func pasteText(_ text: String, to binding: TargetBinding, method: String) -> WriteResult {
         let pasteboard = NSPasteboard.general
         let savedItems = backupPasteboard(pasteboard)
         defer { restorePasteboard(pasteboard, items: savedItems) }
@@ -105,10 +130,10 @@ enum TextWriter {
 
         // 验证：尽力读 AXValue 比对（Electron 常读不回，标注未验证但视为成功）。
         if verify(binding.element, expects: text) {
-            return .applied(method: "clipboard")
+            return .applied(method: method)
         }
         DiagnosticsLog.shared.log("clipboard write: 已粘贴但无法读回验证 (Electron 常态)")
-        return .applied(method: "clipboard_unverified")
+        return .applied(method: "\(method)_unverified")
     }
 
     // MARK: - 剪贴板备份/恢复

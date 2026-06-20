@@ -20,6 +20,7 @@ export class Card {
   private clearBtn: HTMLButtonElement;
   private refocusBtn: HTMLButtonElement;
   private status: SyncStatus = "disconnected";
+  private allowEmpty = false;
 
   constructor(targetId: TargetId, displayName: string, cb: CardCallbacks) {
     this.targetId = targetId;
@@ -89,9 +90,14 @@ export class Card {
     return this.textarea.value;
   }
 
-  setStatus(status: SyncStatus): void {
+  setAllowEmpty(allowEmpty: boolean): void {
+    this.allowEmpty = allowEmpty;
+    this.updateButtons();
+  }
+
+  setStatus(status: SyncStatus, detail?: string | null): void {
     this.status = status;
-    this.statusEl.textContent = STATUS_LABEL[status];
+    this.statusEl.textContent = detail ? `${STATUS_LABEL[status]}：${detail}` : STATUS_LABEL[status];
     this.statusEl.dataset.tone = STATUS_TONE[status];
     this.updateButtons();
   }
@@ -100,7 +106,7 @@ export class Card {
   private updateButtons(): void {
     const connected = this.status !== "disconnected" && this.status !== "reconnecting";
     const focused = ["focused", "syncing", "synced", "composing", "sending", "sent", "send_failed"].includes(this.status);
-    const hasText = this.text.trim().length > 0;
+    const hasText = this.allowEmpty || this.text.trim().length > 0;
     const locked = this.status === "sending";
 
     // 发送：未连接/未聚焦/空文本/锁定时禁用

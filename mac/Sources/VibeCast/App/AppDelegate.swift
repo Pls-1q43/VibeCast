@@ -13,8 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.title = "VC"
-        statusItem.button?.toolTip = "VibeCast"
+        configureStatusItem()
 
         let serverName = Host.current().localizedName ?? "Mac"
         session = SessionManager(serverName: serverName, accessibilityGranted: accessibilityGranted())
@@ -90,6 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     // MARK: - 菜单
 
     private func rebuildMenu() {
+        updateStatusButton()
+
         let menu = NSMenu()
 
         let running = server != nil
@@ -110,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         }
 
         menu.addItem(makeInfo("已连接手机：\(pairedCount)"))
-        menu.addItem(makeInfo(accessibilityGranted() ? "辅助功能：已授权" : "辅助功能：未授权（M3 起需要）"))
+        menu.addItem(makeInfo(accessibilityGranted() ? "辅助功能：已授权" : "辅助功能：未授权（写入与发送需要）"))
 
         menu.addItem(.separator())
 
@@ -155,6 +156,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         return item
     }
 
+    private func configureStatusItem() {
+        statusItem.length = NSStatusItem.squareLength
+        updateStatusButton()
+    }
+
+    private func updateStatusButton() {
+        guard let button = statusItem.button else { return }
+        button.toolTip = pairedCount > 0 ? "VibeCast · 已连接 \(pairedCount) 台设备" : "VibeCast"
+        button.imagePosition = .imageOnly
+
+        if let image = statusBarIcon() {
+            button.title = ""
+            button.image = image
+        } else {
+            button.image = nil
+            button.title = pairedCount > 0 ? "VC●" : "VC"
+        }
+    }
+
+    private func statusBarIcon() -> NSImage? {
+        let urls = [
+            Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+            Bundle.module.url(forResource: "AppIcon", withExtension: "icns")
+        ].compactMap { $0 }
+
+        for url in urls {
+            if let image = NSImage(contentsOf: url) {
+                image.size = NSSize(width: 18, height: 18)
+                image.isTemplate = false
+                return image
+            }
+        }
+        return nil
+    }
+
     // MARK: - 菜单动作
 
     @objc private func copyAddress(_ sender: NSMenuItem) {
@@ -174,6 +210,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     @objc private func regenToken() {
         Pairing.regenerate()
+        session.revokePairings()
         log("已重新生成配对令牌，旧设备需重新配对")
         rebuildMenu()
     }
@@ -233,7 +270,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     func sessionPairedCountChanged(_ count: Int) {
         DispatchQueue.main.async {
             self.pairedCount = count
-            self.statusItem.button?.title = count > 0 ? "VC●" : "VC"
+            self.updateStatusButton()
             self.rebuildMenu()
         }
     }

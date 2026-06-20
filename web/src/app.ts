@@ -1,19 +1,12 @@
 // VibeCast 手机端主编排：串联 DraftStore + IMEController + WSClient + Cards。
 // PRD 4.2 / 4.3 / 5 / 6 / 11 / 12 / 16。
 
-import { TARGET_IDS, type TargetId, type ServerMessage } from "./ws/protocol.ts";
+import { type TargetId, type ServerMessage, type TargetInfo } from "./ws/protocol.ts";
 import { WSClient, type ConnectionState } from "./ws/client.ts";
 import { DraftStore, getClientId, uuid } from "./store/draftStore.ts";
 import { IMEController } from "./ime/imeController.ts";
 import { Card } from "./ui/card.ts";
 import type { SyncStatus } from "./ui/status.ts";
-
-const DISPLAY_NAMES: Record<TargetId, string> = {
-  codex: "Codex",
-  workbuddy: "WorkBuddy",
-  notion: "Notion",
-  codebuddy: "CodeBuddy",
-};
 
 export class App {
   private store = new DraftStore();
@@ -28,8 +21,13 @@ export class App {
   private sessions = new Map<TargetId, string>();
   /** 每目标最近一次 target_status 状态，用于判断是否已聚焦。 */
   private targetFocused = new Map<TargetId, boolean>();
+  private targetOptions = new Map<TargetId, { clearAfterSend: boolean; allowEmpty: boolean }>();
+  private targetNames = new Map<TargetId, string>();
+  private pendingSends = new Map<TargetId, { sessionId: string; revision: number }>();
 
   private connbar!: HTMLElement;
+  private cardList!: HTMLElement;
+  private emptyState!: HTMLElement;
   private serverName = "Mac";
 
   constructor(private mount: HTMLElement) {
@@ -67,41 +65,99 @@ export class App {
   private render(): void {
     this.mount.innerHTML = "";
 
+    const brand = document.createElement("header");
+    brand.className = "brandbar";
+    const logo = document.createElement("img");
+    logo.src = "./favicon.svg";
+    logo.alt = "";
+    logo.setAttribute("aria-hidden", "true");
+    const name = document.createElement("strong");
+    name.textContent = "VibeCast";
+    brand.append(logo, name);
+    this.mount.append(brand);
+
     const hint = document.createElement("p");
     hint.className = "hint";
     hint.textContent = "点击某个应用的文本框后，在输入法中点击语音按钮开始说话。识别出的文字会实时镜像到 Mac 对应应用。";
     this.mount.append(hint);
 
-    for (const id of TARGET_IDS) {
-      const card = new Card(id, DISPLAY_NAMES[id], {
-        onFocusTextarea: (t) => this.selectTarget(t),
-        onInput: (t) => this.onCardInput(t),
-        onSend: (t) => this.onSend(t),
-        onClear: (t) => this.onClear(t),
-        onRefocus: (t) => this.refocus(t),
-      });
-      this.cards.set(id, card);
-      this.mount.append(card.element);
+    this.emptyState = document.createElement("section");
+    this.emptyState.className = "empty-state";
+    this.emptyState.textContent = "还没有可用目标。请先在 Mac 菜单栏打开配置页面，启用 App 并绑定 Bundle ID。";
+    this.mount.append(this.emptyState);
 
-      // 恢复持久化草稿
-      const d = this.store.get(id);
-      card.setText(d.text);
-      card.refreshButtons();
-
-      // 绑定 IME 控制器
-      const ime = new IMEController(card.textarea, {
-        onSnapshot: (snap) => this.syncSnapshot(id, snap),
-        onComposingChange: (composing) => {
-          if (this.activeTarget === id && composing) card.setStatus("composing");
-        },
-      });
-      this.imeControllers.set(id, ime);
-    }
+    this.cardList = document.createElement("div");
+    this.cardList.className = "card-list";
+    this.mount.append(this.cardList);
 
     this.connbar = document.createElement("div");
     this.connbar.className = "connbar";
     document.body.append(this.connbar);
     this.updateConnbar();
+  }
+
+  private reconcileTargets(targets: TargetInfo[]): void {
+    const nextIds = new Set(targets.filter((t) => t.available).map((t) => t.id));
+
+    for (const [id, ime] of this.imeControllers) {
+      if (!nextIds.has(id)) {
+        ime.destroy();
+        this.imeControllers.delete(id);
+        this.cards.get(id)?.element.remove();
+        this.cards.delete(id);
+        this.targetOptions.delete(id);
+        this.targetNames.delete(id);
+        this.targetFocused.delete(id);
+        this.pendingSends.delete(id);
+        if (this.activeTarget === id) this.activeTarget = null;
+      }
+    }
+
+    for (const target of targets) {
+      if (!target.available) continue;
+      this.targetNames.set(target.id, target.displayName);
+      this.targetOptions.set(target.id, {
+        clearAfterSend: target.clearAfterSend,
+        allowEmpty: target.allowEmpty,
+      });
+      if (!this.cards.has(target.id)) {
+        this.addCard(target);
+      } else {
+        this.cards.get(target.id)?.setAllowEmpty(target.allowEmpty);
+      }
+    }
+
+    this.emptyState.hidden = this.cards.size > 0;
+    if (!this.activeTarget) {
+      for (const card of this.cards.values()) card.setStatus(this.connState === "connected" ? "idle" : "disconnected");
+    }
+    this.updateConnbar();
+  }
+
+  private addCard(target: TargetInfo): void {
+    const id = target.id;
+    const card = new Card(id, target.displayName, {
+      onFocusTextarea: (t) => this.selectTarget(t),
+      onInput: (t) => this.onCardInput(t),
+      onSend: (t) => this.onSend(t),
+      onClear: (t) => this.onClear(t),
+      onRefocus: (t) => this.refocus(t),
+    });
+    this.cards.set(id, card);
+    this.cardList.append(card.element);
+
+    const d = this.store.get(id);
+    card.setText(d.text, d.selectionStart, d.selectionEnd);
+    card.setAllowEmpty(target.allowEmpty);
+    card.refreshButtons();
+
+    const ime = new IMEController(card.textarea, {
+      onSnapshot: (snap) => this.syncSnapshot(id, snap),
+      onComposingChange: (composing) => {
+        if (this.activeTarget === id && composing) card.setStatus("composing");
+      },
+    });
+    this.imeControllers.set(id, ime);
   }
 
   // ---- 目标选择（PRD 4.3）----
@@ -188,7 +244,11 @@ export class App {
 
     const d = this.store.get(targetId);
     const sessionId = this.sessions.get(targetId)!;
-    this.ws.send({ type: "send", sessionId, targetId, revision: d.revision });
+    if (this.store.isSynced(targetId)) {
+      this.ws.send({ type: "send", sessionId, targetId, revision: d.revision });
+    } else {
+      this.pendingSends.set(targetId, { sessionId, revision: d.revision });
+    }
   }
 
   private onClear(targetId: TargetId): void {
@@ -223,6 +283,7 @@ export class App {
     switch (msg.type) {
       case "hello_ack": {
         this.serverName = msg.serverName;
+        this.reconcileTargets(msg.targets);
         this.updateConnbar();
         // 重连后恢复活动目标 + 发送最新完整快照（PRD 16.4）。
         if (this.activeTarget) {
@@ -250,8 +311,20 @@ export class App {
         if (msg.applied) {
           this.store.markAcked(msg.targetId, msg.revision);
           if (this.store.isSynced(msg.targetId)) card.setStatus("synced");
+          const pending = this.pendingSends.get(msg.targetId);
+          if (pending && msg.revision >= pending.revision) {
+            this.pendingSends.delete(msg.targetId);
+            card.setStatus("sending");
+            this.ws.send({
+              type: "send",
+              sessionId: pending.sessionId,
+              targetId: msg.targetId,
+              revision: pending.revision,
+            });
+          }
         } else if (msg.errorCode && msg.errorCode !== "STALE_REVISION") {
-          card.setStatus("sync_failed");
+          this.pendingSends.delete(msg.targetId);
+          card.setStatus("sync_failed", msg.message ?? msg.errorCode);
         }
         break;
       }
@@ -260,9 +333,12 @@ export class App {
         if (!card) break;
         if (msg.success) {
           card.setStatus("sent");
-          // 是否清空草稿由 Mac 端 Profile 决定；M1 暂不本地清空，等 M7 接配置回传。
+          if (this.targetOptions.get(msg.targetId)?.clearAfterSend) {
+            this.store.clear(msg.targetId);
+            card.setText("");
+          }
         } else {
-          card.setStatus("send_failed");
+          card.setStatus("send_failed", msg.message ?? msg.errorCode ?? null);
         }
         card.refreshButtons();
         break;
@@ -270,6 +346,8 @@ export class App {
       case "error":
         // 握手/校验错误：连接条提示。
         this.connbar.title = `${msg.errorCode}: ${msg.message}`;
+        this.connbar.dataset.state = "disconnected";
+        this.connbar.textContent = `${msg.message}（${msg.errorCode}）`;
         break;
     }
   }
@@ -304,7 +382,7 @@ export class App {
     const left = document.createElement("span");
     left.textContent = label;
     const right = document.createElement("span");
-    right.textContent = this.activeTarget ? `目标：${DISPLAY_NAMES[this.activeTarget]}` : "未选择目标";
+    right.textContent = this.activeTarget ? `目标：${this.targetNames.get(this.activeTarget) ?? this.activeTarget}` : "未选择目标";
     this.connbar.append(left, right);
   }
 }

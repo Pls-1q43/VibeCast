@@ -3,9 +3,9 @@
 
 export const PROTOCOL_VERSION = 1;
 
-export type TargetId = "codex" | "workbuddy" | "notion" | "codebuddy";
+export type TargetId = string;
 
-export const TARGET_IDS: TargetId[] = ["codex", "workbuddy", "notion", "codebuddy"];
+export const PRESET_TARGET_IDS: TargetId[] = ["codex", "workbuddy", "notion", "codebuddy"];
 
 export type ErrorCode =
   | "UNPAIRED"
@@ -87,7 +87,12 @@ export type ClientMessage =
   | GetConfigMessage
   | SetConfigMessage
   | TestTargetMessage
-  | ListRunningAppsMessage;
+  | ListRunningAppsMessage
+  | GetStatusMessage
+  | OpenAccessibilitySettingsMessage
+  | CreateTargetMessage
+  | DeleteTargetMessage
+  | SetTargetEnabledMessage;
 
 // ---- Mac → 手机 ----
 
@@ -95,6 +100,8 @@ export interface TargetInfo {
   id: TargetId;
   displayName: string;
   available: boolean;
+  clearAfterSend: boolean;
+  allowEmpty: boolean;
 }
 
 export interface HelloAckMessage {
@@ -121,6 +128,8 @@ export interface TextAckMessage {
   revision: number;
   applied: boolean;
   errorCode: ErrorCode | null;
+  message?: string | null;
+  verified?: boolean | null;
 }
 
 export interface SendResultMessage {
@@ -162,7 +171,14 @@ export interface TargetProfile {
   keepForeground: boolean;
   maxTextLength: number;
   allowSelectAllReplace: boolean;
-  writeMode?: "auto" | "axvalue" | "clipboard_paste";
+  writeMode?: "auto" | "axvalue" | "clipboard_replace" | "clipboard_insert" | "clipboard_paste";
+}
+
+export interface ConfigTarget {
+  id: TargetId;
+  kind: "preset" | "custom";
+  enabled: boolean;
+  profile: TargetProfile;
 }
 
 export interface GetConfigMessage {
@@ -180,10 +196,30 @@ export interface TestTargetMessage {
 export interface ListRunningAppsMessage {
   type: "list_running_apps";
 }
+export interface GetStatusMessage {
+  type: "get_status";
+}
+export interface OpenAccessibilitySettingsMessage {
+  type: "open_accessibility_settings";
+}
+export interface CreateTargetMessage {
+  type: "create_target";
+  displayName: string;
+  bundleId?: string | null;
+}
+export interface DeleteTargetMessage {
+  type: "delete_target";
+  targetId: TargetId;
+}
+export interface SetTargetEnabledMessage {
+  type: "set_target_enabled";
+  targetId: TargetId;
+  enabled: boolean;
+}
 
 export interface ConfigMessage {
   type: "config";
-  profiles: Record<string, TargetProfile>;
+  targets: ConfigTarget[];
 }
 export interface TestResultMessage {
   type: "test_result";
@@ -200,6 +236,11 @@ export interface RunningAppsMessage {
   type: "running_apps";
   apps: RunningApp[];
 }
+export interface ServerStatusMessage {
+  type: "server_status";
+  serverName: string;
+  accessibilityGranted: boolean;
+}
 
 export type ServerMessage =
   | HelloAckMessage
@@ -210,7 +251,8 @@ export type ServerMessage =
   | PongMessage
   | ConfigMessage
   | TestResultMessage
-  | RunningAppsMessage;
+  | RunningAppsMessage
+  | ServerStatusMessage;
 
 export function isServerMessage(v: unknown): v is ServerMessage {
   return typeof v === "object" && v !== null && typeof (v as { type?: unknown }).type === "string";

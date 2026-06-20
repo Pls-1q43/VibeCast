@@ -23,6 +23,7 @@ final class Connection {
     private var buffer = Data()
     private var isWebSocket = false
     private var closed = false
+    private let maxTextFrameBytes = 128 * 1024
 
     init(_ nw: NWConnection, staticServer: StaticFileServer, queue: DispatchQueue) {
         self.nw = nw
@@ -126,6 +127,10 @@ final class Connection {
     private func handleFrame(_ frame: WSFrame) {
         switch frame.opcode {
         case .text:
+            guard frame.payload.count <= maxTextFrameBytes else {
+                close()
+                return
+            }
             if let s = String(data: frame.payload, encoding: .utf8) {
                 delegate?.connection(self, didReceiveText: s)
             }

@@ -1,7 +1,7 @@
-// 四目标独立草稿 + 每目标独立单调 revision，localStorage 持久化。
+// 每目标独立草稿 + 每目标独立单调 revision，localStorage 持久化。
 // PRD 5.4 / 12.1：切换目标不清空原草稿，刷新恢复未发送草稿，revision 单调递增。
 
-import { TARGET_IDS, type TargetId } from "../ws/protocol.ts";
+import { type TargetId } from "../ws/protocol.ts";
 
 export interface Draft {
   text: string;
@@ -20,13 +20,6 @@ const CLIENT_ID_KEY = "vibecast.clientId.v1";
 
 function emptyDraft(): Draft {
   return { text: "", revision: 0, ackedRevision: 0, selectionStart: 0, selectionEnd: 0 };
-}
-
-function defaultMap(): DraftMap {
-  return TARGET_IDS.reduce((acc, id) => {
-    acc[id] = emptyDraft();
-    return acc;
-  }, {} as DraftMap);
 }
 
 /**
@@ -73,11 +66,10 @@ export class DraftStore {
   private load(): DraftMap {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) return defaultMap();
+      if (!raw) return {};
       const parsed = JSON.parse(raw) as Partial<DraftMap>;
-      const map = defaultMap();
-      for (const id of TARGET_IDS) {
-        const d = parsed[id];
+      const map: DraftMap = {};
+      for (const [id, d] of Object.entries(parsed)) {
         if (d && typeof d.text === "string" && typeof d.revision === "number") {
           map[id] = {
             text: d.text,
@@ -90,7 +82,7 @@ export class DraftStore {
       }
       return map;
     } catch {
-      return defaultMap();
+      return {};
     }
   }
 
@@ -103,12 +95,16 @@ export class DraftStore {
   }
 
   get(targetId: TargetId): Draft {
+    if (!this.drafts[targetId]) {
+      this.drafts[targetId] = emptyDraft();
+      this.persist();
+    }
     return this.drafts[targetId];
   }
 
   /** 是否已完全同步：当前 revision 已被 Mac ack 且无更新内容。 */
   isSynced(targetId: TargetId): boolean {
-    const d = this.drafts[targetId];
+    const d = this.get(targetId);
     return d.ackedRevision >= d.revision;
   }
 
@@ -117,7 +113,7 @@ export class DraftStore {
    * 仅当文本或选区实际变化时递增 revision。
    */
   update(targetId: TargetId, text: string, selectionStart: number, selectionEnd: number): Draft {
-    const d = this.drafts[targetId];
+    const d = this.get(targetId);
     const changed = d.text !== text;
     d.text = text;
     d.selectionStart = selectionStart;
@@ -131,7 +127,7 @@ export class DraftStore {
 
   /** 清空某目标草稿，递增 revision（清空也是一次需同步的变更）。 */
   clear(targetId: TargetId): Draft {
-    const d = this.drafts[targetId];
+    const d = this.get(targetId);
     d.text = "";
     d.selectionStart = 0;
     d.selectionEnd = 0;
@@ -142,7 +138,7 @@ export class DraftStore {
 
   /** 记录 Mac 已应用的版本号（仅允许前进，旧 ack 不回退）。 */
   markAcked(targetId: TargetId, revision: number): void {
-    const d = this.drafts[targetId];
+    const d = this.get(targetId);
     if (revision > d.ackedRevision) {
       d.ackedRevision = revision;
       this.persist();

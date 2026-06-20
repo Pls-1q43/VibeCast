@@ -4,7 +4,7 @@ import XCTest
 final class TargetProfileTests: XCTestCase {
 
     func testDefaultProfilesForAllTargets() {
-        for id in TargetId.allCases {
+        for id in TargetId.presetIds {
             let p = TargetProfile.defaultFor(id)
             XCTAssertFalse(p.displayName.isEmpty)
             XCTAssertTrue(p.bundleId.isEmpty, "默认不得写死 Bundle ID")
@@ -12,11 +12,14 @@ final class TargetProfileTests: XCTestCase {
         }
     }
 
-    func testNotionDefaultsSyncOnlyNoSend() {
-        // Notion 默认当前文本块模式：不自动发送、不清空（PRD 14.2）。
+    func testNotionDefaultsUseClipboardForAiInput() {
+        // Notion AI 输入框不可靠支持 AXValue，默认使用剪贴板替换并允许 Enter 发送。
         let p = TargetProfile.defaultFor(.notion)
-        XCTAssertEqual(p.sendMode, .noneSyncOnly)
-        XCTAssertFalse(p.clearAfterSend)
+        XCTAssertEqual(p.writeMode, .clipboardReplace)
+        XCTAssertTrue(p.allowSelectAllReplace)
+        XCTAssertEqual(p.sendMode, .key)
+        XCTAssertEqual(p.sendShortcut, .enter)
+        XCTAssertTrue(p.clearAfterSend)
         XCTAssertEqual(p.focusMode, .preserveLastFocus)
     }
 
@@ -41,5 +44,26 @@ final class TargetProfileTests: XCTestCase {
     func testKeyShortcutEnterConstant() {
         XCTAssertEqual(KeyShortcut.enter.key, "enter")
         XCTAssertTrue(KeyShortcut.enter.modifiers.isEmpty)
+    }
+
+    func testNormalizeClampsRiskyValuesAndMigratesLegacyClipboardPaste() {
+        var p = TargetProfile.defaultFor(.codex)
+        p.displayName = "  "
+        p.focusWaitMs = 0
+        p.maxTextLength = 100_000
+        p.writeMode = .clipboardPaste
+        let normalized = p.normalized()
+        XCTAssertEqual(normalized.displayName, "Target")
+        XCTAssertEqual(normalized.focusWaitMs, 50)
+        XCTAssertEqual(normalized.maxTextLength, 50_000)
+        XCTAssertEqual(normalized.writeMode, .clipboardReplace)
+    }
+
+    func testCustomTargetIdDefaultsLikeGenericTarget() throws {
+        let id = try XCTUnwrap(TargetId(rawValue: "custom_textedit"))
+        let p = TargetProfile.defaultFor(id)
+        XCTAssertEqual(p.displayName, "Custom_Textedit")
+        XCTAssertEqual(p.focusMode, .shortcut)
+        XCTAssertEqual(p.writeMode, .auto)
     }
 }

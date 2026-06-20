@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 320" role="img" aria-labelledby="title desc">
+  <title id="title">VibeCast logo</title>
+  <desc id="desc">The VibeCast app icon beside a bold VibeCast wordmark.</desc>
+  <defs>
+    <clipPath id="app-mask">
+      <rect x="24" y="24" width="272" height="272" rx="68"/>
+    </clipPath>
+  </defs>
+  <g>
+    <g clip-path="url(#app-mask)">
+      <rect x="24" y="24" width="272" height="272" fill="#0F172A"/>
+      <path d="M24 24h272v126c-45-18-89-17-130 9-48 30-94 31-142 6V24z" fill="#0D9488"/>
+      <path d="M24 224c39-24 82-26 128-5 52 23 95 21 144-11v88H24v-72z" fill="#E11D48"/>
+      <path d="M209 24h87v94c-26-3-50-12-72-27-16-12-27-31-15-67z" fill="#2563EB"/>
+    </g>
+    <rect x="24" y="24" width="272" height="272" rx="68" fill="none" stroke="#0F172A" stroke-opacity="0.1" stroke-width="8"/>
+    <path d="M114 98h92c22 0 40 18 40 40v44c0 22-18 40-40 40h-72c-10 0-16 4-21 12l-29 24c-7 4-14-3-9-10l18-28c-12-7-19-21-19-38v-44c0-22 18-40 40-40z" fill="#FFFFFF"/>
+    <rect x="104" y="139" width="15" height="43" rx="8" fill="#0D9488"/>
+    <rect x="129" y="123" width="15" height="75" rx="8" fill="#E11D48"/>
+    <rect x="155" y="146" width="15" height="29" rx="8" fill="#2563EB"/>
+    <rect x="195" y="123" width="19" height="75" rx="10" fill="#0F172A"/>
+  </g>
+  <g fill="#0F172A">
+    <text x="352" y="185" font-family="Righteous, Poppins, Avenir Next, Arial, sans-serif" font-size="104" font-weight="700" letter-spacing="0">VibeCast</text>
+    <text x="358" y="238" font-family="Poppins, Avenir Next, Arial, sans-serif" font-size="28" font-weight="600" letter-spacing="2" fill="#0D9488">LOCAL VOICE TO MAC</text>
+  </g>
+</svg>

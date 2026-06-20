@@ -12,7 +12,9 @@ enum ActivationMode: String, Codable {
 enum WriteMode: String, Codable {
     case auto            // 先 AXValue 直写，失败按 allowSelectAllReplace 决定是否剪贴板全选替换
     case axValue = "axvalue"        // 仅 AXValue 直写
-    case clipboardPaste = "clipboard_paste" // 仅"粘贴到当前光标"（不全选）——适用 Electron/contenteditable
+    case clipboardReplace = "clipboard_replace" // 剪贴板全选替换；必须 allowSelectAllReplace=true
+    case clipboardInsert = "clipboard_insert" // 剪贴板插入到当前光标；不保证镜像替换
+    case clipboardPaste = "clipboard_paste" // 旧配置名；发布版按 clipboardReplace 处理，但受 allowSelectAllReplace 保护
 }
 
 enum FocusMode: String, Codable {
@@ -27,6 +29,12 @@ enum SendMode: String, Codable {
     case customShortcut = "custom_shortcut"
     case accessibilityButton = "accessibility_button"
     case noneSyncOnly = "none"
+}
+
+extension WriteMode {
+    var usesClipboard: Bool {
+        self == .clipboardReplace || self == .clipboardInsert || self == .clipboardPaste
+    }
 }
 
 /// 键盘快捷键描述（修饰键 + 主键）。
@@ -101,71 +109,225 @@ struct TargetProfile: Codable {
 
     static func defaultFor(_ id: TargetId) -> TargetProfile {
         let name = id.rawValue.capitalized
-        switch id {
-        case .notion:
-            // Notion 默认面向 AI 对话框：恢复上次焦点 + 粘贴到光标（不全选）+ 仅同步不发送。
+        if id == .notion {
+            // Notion AI 输入框通常是 Electron/contenteditable，AXValue 可能只改到
+            // accessibility 层的“虚值”。默认走剪贴板替换，并要求用户先把焦点放进 AI 输入框。
             return TargetProfile(
                 displayName: name, bundleId: "", activationMode: .bundleId,
                 launchIfNotRunning: false, focusMode: .preserveLastFocus, focusShortcut: nil,
-                focusWaitMs: 300, sendMode: .noneSyncOnly, sendShortcut: nil,
-                sendButtonTitleContains: nil,
-                clearAfterSend: false, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
-                allowSelectAllReplace: false, writeMode: .clipboardPaste)
-        default:
-            return TargetProfile(
-                displayName: name, bundleId: "", activationMode: .bundleId,
-                launchIfNotRunning: true, focusMode: .shortcut, focusShortcut: nil,
-                focusWaitMs: 250, sendMode: .key, sendShortcut: .enter,
+                focusWaitMs: 300, sendMode: .key, sendShortcut: .enter,
                 sendButtonTitleContains: nil,
                 clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
-                allowSelectAllReplace: true, writeMode: .auto)
+                allowSelectAllReplace: true, writeMode: .clipboardReplace)
         }
+        return TargetProfile(
+            displayName: name, bundleId: "", activationMode: .bundleId,
+            launchIfNotRunning: true, focusMode: .shortcut, focusShortcut: nil,
+            focusWaitMs: 250, sendMode: .key, sendShortcut: .enter,
+            sendButtonTitleContains: nil,
+            clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
+            allowSelectAllReplace: true, writeMode: .auto)
+    }
+}
+
+struct TargetConfigEntry: Codable, Sendable {
+    var id: TargetId
+    var kind: TargetKind
+    var enabled: Bool
+    var profile: TargetProfile
+
+    func normalized() -> TargetConfigEntry {
+        var entry = self
+        entry.profile = entry.profile.normalized()
+        return entry
     }
 }
 
 /// 全部目标的配置集合，JSON 持久化到 Application Support。
 final class TargetConfigStore {
-    private(set) var profiles: [TargetId: TargetProfile]
+    private(set) var entries: [TargetId: TargetConfigEntry]
     private let fileURL: URL
 
-    init() {
+    init(fileURL: URL? = nil) {
         let fm = FileManager.default
-        let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-            .appendingPathComponent("VibeCast", isDirectory: true)
-        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
-        self.fileURL = base.appendingPathComponent("targets.json")
-        self.profiles = TargetConfigStore.load(from: fileURL)
+        if let fileURL {
+            self.fileURL = fileURL
+            try? fm.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        } else {
+            let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("VibeCast", isDirectory: true)
+            try? fm.createDirectory(at: base, withIntermediateDirectories: true)
+            self.fileURL = base.appendingPathComponent("targets.json")
+        }
+        self.entries = TargetConfigStore.load(from: self.fileURL)
     }
 
-    private static func load(from url: URL) -> [TargetId: TargetProfile] {
-        var result: [TargetId: TargetProfile] = [:]
-        if let data = try? Data(contentsOf: url),
-           let decoded = try? JSONDecoder().decode([String: TargetProfile].self, from: data) {
-            for (k, v) in decoded {
-                if let id = TargetId(rawValue: k) { result[id] = v }
+    private struct StoredConfig: Codable {
+        var targets: [TargetConfigEntry]
+    }
+
+    private static func load(from url: URL) -> [TargetId: TargetConfigEntry] {
+        var result = presetEntries()
+        guard let data = try? Data(contentsOf: url) else { return result }
+
+        if let decoded = try? JSONDecoder().decode(StoredConfig.self, from: data) {
+            for entry in decoded.targets {
+                result[entry.id] = entry.normalized()
             }
+            return fillMissingPresets(result)
         }
-        // 补齐缺失目标为默认值。
-        for id in TargetId.allCases where result[id] == nil {
-            result[id] = .defaultFor(id)
+
+        // 兼容旧版 targets.json: { "codex": TargetProfile, ... }
+        if let decoded = try? JSONDecoder().decode([String: TargetProfile].self, from: data) {
+            for (k, v) in decoded {
+                if let id = TargetId(rawValue: k) {
+                    let kind: TargetKind = TargetId.presetIds.contains(id) ? .preset : .custom
+                    result[id] = TargetConfigEntry(id: id, kind: kind, enabled: true, profile: v).normalized()
+                }
+            }
+            return fillMissingPresets(result)
+        }
+
+        return result
+    }
+
+    private static func presetEntries() -> [TargetId: TargetConfigEntry] {
+        var result: [TargetId: TargetConfigEntry] = [:]
+        for id in TargetId.presetIds {
+            result[id] = TargetConfigEntry(id: id, kind: .preset, enabled: true, profile: .defaultFor(id))
         }
         return result
     }
 
-    func profile(_ id: TargetId) -> TargetProfile {
-        profiles[id] ?? .defaultFor(id)
+    private static func fillMissingPresets(_ entries: [TargetId: TargetConfigEntry]) -> [TargetId: TargetConfigEntry] {
+        var result = entries
+        for id in TargetId.presetIds where result[id] == nil {
+            result[id] = TargetConfigEntry(id: id, kind: .preset, enabled: true, profile: .defaultFor(id))
+        }
+        return result
     }
 
-    func update(_ id: TargetId, _ profile: TargetProfile) {
-        profiles[id] = profile
+    var allTargets: [TargetConfigEntry] {
+        let presetOrder = Dictionary(uniqueKeysWithValues: TargetId.presetIds.enumerated().map { ($0.element, $0.offset) })
+        return entries.values.sorted { a, b in
+            switch (a.kind, b.kind) {
+            case (.preset, .preset):
+                return (presetOrder[a.id] ?? 0) < (presetOrder[b.id] ?? 0)
+            case (.preset, .custom):
+                return true
+            case (.custom, .preset):
+                return false
+            case (.custom, .custom):
+                return a.profile.displayName.localizedCaseInsensitiveCompare(b.profile.displayName) == .orderedAscending
+            }
+        }
+    }
+
+    var activeTargets: [TargetConfigEntry] {
+        allTargets.filter { $0.enabled && !$0.profile.bundleId.isEmpty }
+    }
+
+    func entry(_ id: TargetId) -> TargetConfigEntry? {
+        entries[id]
+    }
+
+    func profile(_ id: TargetId) -> TargetProfile {
+        entries[id]?.profile ?? .defaultFor(id)
+    }
+
+    func isUsable(_ id: TargetId) -> Bool {
+        guard let entry = entries[id] else { return false }
+        return entry.enabled && !entry.profile.bundleId.isEmpty
+    }
+
+    @discardableResult
+    func update(_ id: TargetId, _ profile: TargetProfile) -> Bool {
+        guard var entry = entries[id] else { return false }
+        entry.profile = profile
+        entries[id] = entry.normalized()
         persist()
+        return true
+    }
+
+    @discardableResult
+    func setEnabled(_ id: TargetId, enabled: Bool) -> Bool {
+        guard var entry = entries[id] else { return false }
+        entry.enabled = enabled
+        entries[id] = entry
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func createCustom(displayName: String, bundleId: String?) -> TargetConfigEntry {
+        let cleanName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = cleanName.isEmpty ? "Custom App" : cleanName
+        let id = uniqueCustomId(base: bundleId?.isEmpty == false ? bundleId! : name)
+        var profile = TargetProfile.defaultFor(id)
+        profile.displayName = name
+        profile.bundleId = bundleId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let entry = TargetConfigEntry(id: id, kind: .custom, enabled: true, profile: profile.normalized())
+        entries[id] = entry
+        persist()
+        return entry
+    }
+
+    @discardableResult
+    func deleteCustom(_ id: TargetId) -> Bool {
+        guard entries[id]?.kind == .custom else { return false }
+        entries.removeValue(forKey: id)
+        persist()
+        return true
     }
 
     private func persist() {
-        var dict: [String: TargetProfile] = [:]
-        for (k, v) in profiles { dict[k.rawValue] = v }
-        if let data = try? JSONEncoder().encode(dict) {
+        let stored = StoredConfig(targets: allTargets)
+        if let data = try? JSONEncoder().encode(stored) {
             try? data.write(to: fileURL)
         }
+    }
+
+    private func uniqueCustomId(base: String) -> TargetId {
+        let slugSource = base.lowercased()
+        var slug = ""
+        for ch in slugSource {
+            if ch.isLetter || ch.isNumber {
+                slug.append(ch)
+            } else if ch == "." || ch == "-" || ch == "_" || ch.isWhitespace {
+                if !slug.hasSuffix("_") { slug.append("_") }
+            }
+        }
+        slug = slug.trimmingCharacters(in: CharacterSet(charactersIn: "_-."))
+        if slug.isEmpty { slug = "app" }
+        if slug.count > 40 { slug = String(slug.prefix(40)) }
+
+        var candidate = TargetId(rawValue: "custom_\(slug)")!
+        var i = 2
+        while entries[candidate] != nil {
+            candidate = TargetId(rawValue: "custom_\(slug)_\(i)")!
+            i += 1
+        }
+        return candidate
+    }
+}
+
+extension TargetProfile {
+    func normalized() -> TargetProfile {
+        var p = self
+        p.displayName = p.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if p.displayName.isEmpty { p.displayName = "Target" }
+        p.bundleId = p.bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
+        p.focusWaitMs = min(max(p.focusWaitMs, 50), 5_000)
+        p.maxTextLength = min(max(p.maxTextLength, 1), 50_000)
+        if (p.sendMode == .key || p.sendMode == .customShortcut), p.sendShortcut == nil {
+            p.sendShortcut = .enter
+        }
+        if p.writeMode == .clipboardPaste {
+            p.writeMode = .clipboardReplace
+        }
+        if p.writeMode == .clipboardInsert {
+            p.allowSelectAllReplace = false
+        }
+        return p
     }
 }
