@@ -117,13 +117,20 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "$TAG" "dist/VibeCast-$VERSION-macos.zip#VibeCast $VERSION for macOS" \
-            --verify-tag \
-            --title "VibeCast $VERSION" \
-            --generate-notes
+          ASSET="dist/VibeCast-$VERSION-macos.zip#VibeCast $VERSION for macOS"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" \
+              --verify-tag \
+              --title "VibeCast $VERSION" \
+              --generate-notes
+          fi
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
