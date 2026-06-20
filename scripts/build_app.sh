@@ -5,10 +5,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MAC="$ROOT/mac"
 DIST="$ROOT/dist"
-APP="$DIST/VibeCast.app"
-ZIP="$DIST/VibeCast-0.1.0-macos.zip"
-BUNDLE_ID="com.vibecast.app"
-VERSION="0.1.0"
+STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/vibecast-app.XXXXXX")"
+APP="$STAGING_DIR/VibeCast.app"
+DIST_APP="$DIST/VibeCast.app"
+BUNDLE_ID="${BUNDLE_ID:-com.vibecast.app}"
+VERSION="${VERSION:-0.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"
+APPCAST_URL="${APPCAST_URL:-https://pls-1q43.github.io/VibeCast/appcast.xml}"
+SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-M1A0OPVxChp18vDMW8C1iNgEOF170/2ljM/hbTWfGcQ=}"
+ZIP="$DIST/VibeCast-$VERSION-macos.zip"
 WEB_RES="$MAC/Sources/VibeCast/Resources/web"
 APP_ICON="$MAC/Sources/VibeCast/Resources/AppIcon.icns"
 STATUS_BAR_ICON="$MAC/Sources/VibeCast/Resources/StatusBarIconTemplate.png"
@@ -24,6 +29,7 @@ restore_web_resources() {
     fi
   fi
   rm -rf "$BACKUP_DIR"
+  rm -rf "$STAGING_DIR"
 }
 trap restore_web_resources EXIT
 
@@ -69,8 +75,8 @@ BIN="$MAC/.build/release/VibeCast"
 [ -x "$BIN" ] || { echo "未找到可执行文件 $BIN"; exit 1; }
 
 echo "==> 组装 .app bundle"
-rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+rm -rf "$APP" "$DIST_APP"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 cp "$BIN" "$APP/Contents/MacOS/VibeCast"
 
@@ -88,6 +94,17 @@ if [ -d "$RES_BUNDLE" ]; then
   cp -R "$RES_BUNDLE" "$APP/Contents/Resources/"
 fi
 
+SPARKLE_FRAMEWORK="$(find "$MAC/.build" -path "*/Sparkle.framework" -type d | head -n 1)"
+if [ -z "$SPARKLE_FRAMEWORK" ]; then
+  echo "未找到 Sparkle.framework，请确认 SwiftPM 已解析 Sparkle 依赖"
+  exit 1
+fi
+ditto --norsrc "$SPARKLE_FRAMEWORK" "$APP/Contents/Frameworks/Sparkle.framework"
+
+if command -v install_name_tool >/dev/null 2>&1; then
+  install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP/Contents/MacOS/VibeCast" 2>/dev/null || true
+fi
+
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -96,7 +113,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleName</key><string>VibeCast</string>
   <key>CFBundleDisplayName</key><string>VibeCast</string>
   <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
-  <key>CFBundleVersion</key><string>$VERSION</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>VibeCast</string>
@@ -105,6 +122,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <!-- 菜单栏 App：不在 Dock 显示 -->
   <key>LSUIElement</key><true/>
   <key>NSHighResolutionCapable</key><true/>
+  <key>SUFeedURL</key><string>$APPCAST_URL</string>
+  <key>SUPublicEDKey</key><string>$SPARKLE_PUBLIC_ED_KEY</string>
 </dict>
 </plist>
 PLIST
@@ -112,25 +131,49 @@ PLIST
 echo "==> 本地签名"
 if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP"
+  find "$APP" -exec xattr -c {} \; 2>/dev/null || true
+fi
+if command -v dot_clean >/dev/null 2>&1; then
+  dot_clean -m "$APP" 2>/dev/null || true
 fi
 if command -v codesign >/dev/null 2>&1; then
-  CODESIGN_ARGS=(--force --deep --sign "${CODESIGN_IDENTITY:--}")
+  CODESIGN_ARGS=(--force --sign "${CODESIGN_IDENTITY:--}")
+  if [ -n "${CODESIGN_IDENTITY:-}" ]; then
+    CODESIGN_ARGS+=(--options runtime --timestamp)
+  fi
+
+  SPARKLE_BUNDLE="$APP/Contents/Frameworks/Sparkle.framework/Versions/B"
+  for nested in \
+    "$SPARKLE_BUNDLE/XPCServices/Downloader.xpc" \
+    "$SPARKLE_BUNDLE/XPCServices/Installer.xpc" \
+    "$SPARKLE_BUNDLE/Updater.app" \
+    "$SPARKLE_BUNDLE/Autoupdate" \
+    "$APP/Contents/Frameworks/Sparkle.framework"
+  do
+    if [ -e "$nested" ]; then
+      codesign "${CODESIGN_ARGS[@]}" "$nested"
+    fi
+  done
+
+  APP_CODESIGN_ARGS=("${CODESIGN_ARGS[@]}")
   if [ -z "${CODESIGN_IDENTITY:-}" ]; then
     # Ad-hoc signing normally falls back to a cdhash-only designated requirement,
     # which makes macOS TCC treat every rebuild as a different Accessibility client.
     # Pin a stable local requirement to the bundle identifier so local updates do
     # not repeatedly invalidate the user's Accessibility grant.
-    CODESIGN_ARGS+=(--requirements "=designated => identifier \"$BUNDLE_ID\"")
+    APP_CODESIGN_ARGS+=(--requirements "=designated => identifier \"$BUNDLE_ID\"")
   fi
-  codesign "${CODESIGN_ARGS[@]}" "$APP"
+  codesign "${APP_CODESIGN_ARGS[@]}" "$APP"
 else
   echo "未找到 codesign，跳过签名"
 fi
 
 echo "==> 生成发布压缩包"
 rm -f "$ZIP"
-( cd "$DIST" && ditto -c -k --sequesterRsrc --keepParent "VibeCast.app" "$ZIP" )
+( cd "$STAGING_DIR" && ditto -c -k --sequesterRsrc --keepParent "VibeCast.app" "$ZIP" )
+rm -rf "$DIST_APP"
+mv "$APP" "$DIST_APP"
 
-echo "==> 完成: $APP"
+echo "==> 完成: $DIST_APP"
 echo "==> 发布包: $ZIP"
-echo "    启动: open \"$APP\""
+echo "    启动: open \"$DIST_APP\""

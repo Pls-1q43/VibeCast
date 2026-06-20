@@ -2,11 +2,14 @@
 // 组装 Server + SessionManager，渲染状态栏菜单：运行状态/地址/连接数/权限/重启/日志/退出。
 
 import AppKit
+import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate {
     private var statusItem: NSStatusItem!
     private var server: Server?
     private var session: SessionManager!
+    private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    private var aboutWindowController: AboutWindowController?
     private let defaultPort: UInt16 = 8787
 
     private var pairedCount = 0
@@ -143,6 +146,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         menu.addItem(loginItem)
 
         menu.addItem(.separator())
+        let aboutItem = NSMenuItem(title: MacI18n.t("about"), action: #selector(showAbout), keyEquivalent: "")
+        aboutItem.target = self
+        menu.addItem(aboutItem)
+
         let quitItem = NSMenuItem(title: MacI18n.t("quit"), action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -252,6 +259,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         // 在 Finder 中选中导出的脱敏诊断包。
         NSWorkspace.shared.activateFileViewerSelecting([url])
         log(MacI18n.f("diagnosticsExported", url.lastPathComponent))
+    }
+
+    @objc private func showAbout() {
+        if aboutWindowController == nil {
+            aboutWindowController = AboutWindowController(updaterController: updaterController)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        aboutWindowController?.showWindow(nil)
+        aboutWindowController?.window?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func quit() {

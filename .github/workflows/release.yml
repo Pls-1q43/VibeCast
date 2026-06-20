@@ -1,0 +1,180 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, for example v0.1.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    runs-on: macos-14
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy-pages.outputs.page_url }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          if [[ ! "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+ ]]; then
+            echo "Release tag must look like vX.Y.Z; got $TAG" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+
+      - name: Test web
+        working-directory: web
+        run: |
+          NODE_OPTIONS="" npm test
+          NODE_OPTIONS="" npm run typecheck
+
+      - name: Test mac
+        working-directory: mac
+        run: swift test
+
+      - name: Import Developer ID certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_APPLICATION_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ runner.temp }}/keychain-password
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$CERT_P12_BASE64" ] || [ -z "$CERT_PASSWORD" ]; then
+            echo "Missing Developer ID certificate secrets" >&2
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/release.keychain-db"
+          CERT="$RUNNER_TEMP/developer-id.p12"
+          printf "%s" "$CERT_P12_BASE64" | base64 --decode > "$CERT"
+          openssl rand -hex 24 > "$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$(cat "$KEYCHAIN_PASSWORD")" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$(cat "$KEYCHAIN_PASSWORD")" "$KEYCHAIN"
+          security import "$CERT" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$(cat "$KEYCHAIN_PASSWORD")" "$KEYCHAIN"
+
+      - name: Build signed app archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          CODESIGN_IDENTITY: "Developer ID Application"
+        run: bash scripts/build_app.sh
+
+      - name: Notarize and staple app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="dist/VibeCast-$VERSION-macos.zip"
+          APP="dist/VibeCast.app"
+          xcrun notarytool submit "$ZIP" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$APP"
+          rm -f "$ZIP"
+          (cd dist && ditto -c -k --sequesterRsrc --keepParent VibeCast.app "VibeCast-$VERSION-macos.zip")
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          spctl --assess --type execute --verbose=2 "$APP"
+
+      - name: Download Sparkle tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sparkle"
+          curl -L "https://github.com/sparkle-project/Sparkle/releases/download/2.9.3/Sparkle-2.9.3.tar.xz" -o "$RUNNER_TEMP/sparkle.tar.xz"
+          tar -xf "$RUNNER_TEMP/sparkle.tar.xz" -C "$RUNNER_TEMP/sparkle"
+          echo "SPARKLE_GENERATE_APPCAST=$(find "$RUNNER_TEMP/sparkle" -path '*/bin/generate_appcast' -type f | head -n 1)" >> "$GITHUB_ENV"
+
+      - name: Generate Sparkle appcast
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$SPARKLE_PRIVATE_ED_KEY" ]; then
+            echo "Missing SPARKLE_PRIVATE_ED_KEY secret" >&2
+            exit 1
+          fi
+          mkdir -p public
+          cp "dist/VibeCast-$VERSION-macos.zip" public/
+          cat > "public/VibeCast-$VERSION-macos.md" <<EOF
+          # VibeCast $VERSION
+
+          See the GitHub Release for the full changelog.
+          EOF
+          echo "$SPARKLE_PRIVATE_ED_KEY" | "$SPARKLE_GENERATE_APPCAST" \
+            --ed-key-file - \
+            --maximum-deltas 0 \
+            --download-url-prefix "https://github.com/Pls-1q43/VibeCast/releases/download/$TAG/" \
+            --release-notes-url-prefix "https://pls-1q43.github.io/VibeCast/" \
+            -o public/appcast.xml \
+            public
+          rm -f "public/VibeCast-$VERSION-macos.zip"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release create "$TAG" "dist/VibeCast-$VERSION-macos.zip#VibeCast $VERSION for macOS" \
+            --verify-tag \
+            --title "VibeCast $VERSION" \
+            --generate-notes
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy appcast to GitHub Pages
+        id: deploy-pages
+        uses: actions/deploy-pages@v4
