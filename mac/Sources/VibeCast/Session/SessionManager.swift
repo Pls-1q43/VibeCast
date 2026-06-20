@@ -346,7 +346,9 @@ final class SessionManager: ServerDelegate {
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
-            guard FocusController.validate(binding) else {
+            // clipboard_paste 目标的 SendAction 会自行重新激活，放宽前台校验。
+            let requireFrontmost = (profile.writeMode != .clipboardPaste)
+            guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
                 self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
                                                   revision: revision, success: false, errorCode: .targetNotFocused,
