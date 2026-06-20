@@ -39,6 +39,9 @@ enum TextWriter {
             return .failed("AXValue 直写失败（该目标限定 axvalue 模式）")
 
         case .auto:
+            if text.isEmpty, allowSelectAllReplace {
+                return writeViaClipboardReplacing(text, to: binding)
+            }
             if AXSupport.isValueSettable(binding.element) {
                 if AXSupport.setValue(binding.element, text), verify(binding.element, expects: text) {
                     AXSupport.setSelectionToEnd(binding.element, length: text.count)

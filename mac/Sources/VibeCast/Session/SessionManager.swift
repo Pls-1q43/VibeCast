@@ -337,7 +337,8 @@ final class SessionManager: ServerDelegate {
             guard let self, let conn else { return }
 
             // 剪贴板写入会自行重新激活目标，放宽前台校验（控制端常在另一设备/窗口）。
-            let requireFrontmost = !prof.writeMode.usesClipboard
+            let emptyAutoClearUsesClipboard = text.isEmpty && prof.writeMode == .auto && prof.allowSelectAllReplace
+            let requireFrontmost = !(prof.writeMode.usesClipboard || emptyAutoClearUsesClipboard)
             guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
                 self.send(conn, TargetStatusMessage(sessionId: sessionId, targetId: targetId,

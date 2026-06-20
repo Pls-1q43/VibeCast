@@ -163,7 +163,7 @@ export class App {
   // ---- 目标选择（PRD 4.3）----
 
   private selectTarget(targetId: TargetId): void {
-    if (this.activeTarget === targetId) return;
+    if (this.activeTarget === targetId && this.sessions.has(targetId)) return;
     this.activeTarget = targetId;
     for (const [id, card] of this.cards) card.setSelected(id === targetId);
 
@@ -258,9 +258,15 @@ export class App {
     const d = this.store.clear(targetId);
     card.setText("");
     card.refreshButtons();
-    if (this.connState === "connected" && this.activeTarget === targetId) {
+    if (this.connState === "connected") {
+      if (this.activeTarget !== targetId || !this.sessions.get(targetId)) {
+        this.selectTarget(targetId);
+        card.setStatus("focusing");
+        return;
+      }
       const sessionId = this.sessions.get(targetId)!;
       this.ws.send({ type: "clear", sessionId, targetId, revision: d.revision });
+      card.setStatus("syncing");
     }
   }
 
