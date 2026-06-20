@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -142,7 +141,3 @@ jobs:
           git -C "$PAGES_DIR" add .
           git -C "$PAGES_DIR" commit -m "Deploy appcast for $TAG"
           git -C "$PAGES_DIR" push --force "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
-
-          gh api -X PUT "repos/${GITHUB_REPOSITORY}/pages" \
-            -F "source[branch]=gh-pages" \
-            -F "source[path]=/"
