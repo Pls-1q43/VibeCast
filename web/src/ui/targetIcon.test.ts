@@ -8,6 +8,7 @@ describe("targetIcon", () => {
 
   it("falls back to preset icons for known targets", () => {
     expect(targetIconSrc("notion", null)).toBe("./target-icons/notion.svg");
+    expect(targetIconSrc("codebuddycn", null)).toBe("./target-icons/codebuddy.svg");
   });
 
   it("rejects remote icon urls", () => {

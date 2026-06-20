@@ -11,8 +11,9 @@ struct TargetId: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStr
     static let codex = TargetId(rawValue: "codex")!
     static let workbuddy = TargetId(rawValue: "workbuddy")!
     static let notion = TargetId(rawValue: "notion")!
+    static let codebuddycn = TargetId(rawValue: "codebuddycn")!
     static let codebuddy = TargetId(rawValue: "codebuddy")!
-    static let presetIds: [TargetId] = [.codex, .workbuddy, .notion, .codebuddy]
+    static let presetIds: [TargetId] = [.codex, .workbuddy, .notion, .codebuddycn, .codebuddy]
 
     init?(_ rawValue: String) {
         self.init(rawValue: rawValue)

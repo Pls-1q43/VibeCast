@@ -4,6 +4,7 @@ const PRESET_ICON_SRC: Record<string, string> = {
   codex: "./target-icons/codex.svg",
   workbuddy: "./target-icons/workbuddy.svg",
   notion: "./target-icons/notion.svg",
+  codebuddycn: "./target-icons/codebuddy.svg",
   codebuddy: "./target-icons/codebuddy.svg",
 };
 

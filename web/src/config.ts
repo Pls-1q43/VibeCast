@@ -21,6 +21,7 @@ const PRESET_LABELS: Record<string, string> = {
   codex: "Codex",
   workbuddy: "WorkBuddy",
   notion: "Notion",
+  codebuddycn: "CodeBuddyCN",
   codebuddy: "CodeBuddy",
 };
 

@@ -9,7 +9,7 @@
 
 - `protocolVersion`: 当前为 `1`
 - `sessionId`: 由手机端生成的 UUID，标识一次「目标编辑会话」。切换目标 = 新会话。
-- `targetId`: 目标字符串 ID。预置目标为 `codex` | `workbuddy` | `notion` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
+- `targetId`: 目标字符串 ID。预置目标为 `codex` | `workbuddy` | `notion` | `codebuddycn` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
 - `revision`: 每个 targetId 独立维护的单调递增整数，从 `1` 开始。Mac 只应用比已应用版本更高的快照。
 - 时间戳 `clientTimestamp`: 毫秒级 Unix 时间（可选，仅诊断用）。
 - 图标 `iconDataUrl`: 可选图片 data URL，仅支持 `data:image/...;base64,...`，用于目标卡片和配置页展示。
@@ -44,12 +44,13 @@
     { "id": "codex", "displayName": "Codex", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false },
     { "id": "workbuddy", "displayName": "WorkBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false },
     { "id": "notion", "displayName": "Notion", "available": true, "clearAfterSend": false, "allowEmpty": false },
+    { "id": "codebuddycn", "displayName": "CodeBuddyCN", "available": true, "clearAfterSend": true, "allowEmpty": false },
     { "id": "codebuddy", "displayName": "CodeBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false }
   ],
   "accessibilityGranted": true
 }
 ```
-> `targets` 只返回已启用且已绑定 Bundle ID 的目标。手机端应按该列表动态渲染卡片，而不是写死四个预置目标。`iconDataUrl` 可省略，手机端应回退到预置图标或首字母图标。
+> `targets` 只返回已启用且已绑定 Bundle ID 的目标。手机端应按该列表动态渲染卡片，而不是写死预置目标。`iconDataUrl` 可省略，手机端应回退到预置图标或首字母图标。
 
 ### ← error (Mac → 手机，握手失败)
 ```json
@@ -201,7 +202,7 @@ Mac 规则（顺序）：
       "id": "codex",
       "kind": "preset",
       "enabled": true,
-      "profile": { "displayName": "Codex", "bundleId": "", "iconDataUrl": null, "activationMode": "bundle_id" }
+      "profile": { "displayName": "Codex", "bundleId": "com.openai.codex", "iconDataUrl": null, "activationMode": "bundle_id" }
     }
   ]
 }

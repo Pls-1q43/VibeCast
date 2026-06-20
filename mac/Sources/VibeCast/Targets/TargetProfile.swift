@@ -1,7 +1,6 @@
 // 目标应用配置 Profile。PRD 8 / 20。
 // M3：定义结构 + 默认值 + JSON 持久化。完整配置页面在 M7。
-// 不写死未经确认的 Bundle ID（PRD 8）：默认空，由用户在安装向导/配置页填写。
-
+import AppKit
 import Foundation
 
 enum ActivationMode: String, Codable {
@@ -110,12 +109,14 @@ struct TargetProfile: Codable {
     }
 
     static func defaultFor(_ id: TargetId) -> TargetProfile {
-        let name = id.rawValue.capitalized
+        let preset = PresetTargetCatalog.definition(for: id)
+        let name = preset?.displayName ?? id.rawValue.capitalized
+        let bundleId = preset?.bundleId ?? ""
         if id == .notion {
             // Notion AI 输入框通常是 Electron/contenteditable，AXValue 可能只改到
             // accessibility 层的“虚值”。默认走剪贴板替换，并要求用户先把焦点放进 AI 输入框。
             return TargetProfile(
-                displayName: name, bundleId: "", activationMode: .bundleId,
+                displayName: name, bundleId: bundleId, activationMode: .bundleId,
                 launchIfNotRunning: false, focusMode: .preserveLastFocus, focusShortcut: nil,
                 focusWaitMs: 300, sendMode: .key, sendShortcut: .enter,
                 sendButtonTitleContains: nil,
@@ -123,12 +124,36 @@ struct TargetProfile: Codable {
                 allowSelectAllReplace: true, writeMode: .clipboardReplace)
         }
         return TargetProfile(
-            displayName: name, bundleId: "", activationMode: .bundleId,
+            displayName: name, bundleId: bundleId, activationMode: .bundleId,
             launchIfNotRunning: true, focusMode: .shortcut, focusShortcut: nil,
             focusWaitMs: 250, sendMode: .key, sendShortcut: .enter,
             sendButtonTitleContains: nil,
             clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
             allowSelectAllReplace: true, writeMode: .auto)
+    }
+}
+
+struct PresetTargetDefinition {
+    let id: TargetId
+    let displayName: String
+    let bundleId: String
+}
+
+enum PresetTargetCatalog {
+    static let definitions: [PresetTargetDefinition] = [
+        PresetTargetDefinition(id: .codex, displayName: "Codex", bundleId: "com.openai.codex"),
+        PresetTargetDefinition(id: .workbuddy, displayName: "WorkBuddy", bundleId: "com.workbuddy.workbuddy"),
+        PresetTargetDefinition(id: .notion, displayName: "Notion", bundleId: "notion.id"),
+        PresetTargetDefinition(id: .codebuddycn, displayName: "CodeBuddyCN", bundleId: "com.tencent.codebuddycn"),
+        PresetTargetDefinition(id: .codebuddy, displayName: "CodeBuddy", bundleId: "com.tencent.codebuddy")
+    ]
+
+    static func definition(for id: TargetId) -> PresetTargetDefinition? {
+        definitions.first { $0.id == id }
+    }
+
+    static func isInstalled(bundleId: String) -> Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) != nil
     }
 }
 
@@ -150,7 +175,7 @@ final class TargetConfigStore {
     private(set) var entries: [TargetId: TargetConfigEntry]
     private let fileURL: URL
 
-    init(fileURL: URL? = nil) {
+    init(fileURL: URL? = nil, isBundleInstalled: ((String) -> Bool)? = nil) {
         let fm = FileManager.default
         if let fileURL {
             self.fileURL = fileURL
@@ -161,22 +186,23 @@ final class TargetConfigStore {
             try? fm.createDirectory(at: base, withIntermediateDirectories: true)
             self.fileURL = base.appendingPathComponent("targets.json")
         }
-        self.entries = TargetConfigStore.load(from: self.fileURL)
+        self.entries = TargetConfigStore.load(from: self.fileURL,
+                                              isBundleInstalled: isBundleInstalled ?? PresetTargetCatalog.isInstalled)
     }
 
     private struct StoredConfig: Codable {
         var targets: [TargetConfigEntry]
     }
 
-    private static func load(from url: URL) -> [TargetId: TargetConfigEntry] {
-        var result = presetEntries()
+    private static func load(from url: URL, isBundleInstalled: (String) -> Bool) -> [TargetId: TargetConfigEntry] {
+        var result = presetEntries(isBundleInstalled: isBundleInstalled)
         guard let data = try? Data(contentsOf: url) else { return result }
 
         if let decoded = try? JSONDecoder().decode(StoredConfig.self, from: data) {
             for entry in decoded.targets {
-                result[entry.id] = entry.normalized()
+                result[entry.id] = migrateStoredEntry(entry, isBundleInstalled: isBundleInstalled)
             }
-            return fillMissingPresets(result)
+            return fillMissingPresets(result, isBundleInstalled: isBundleInstalled)
         }
 
         // 兼容旧版 targets.json: { "codex": TargetProfile, ... }
@@ -184,29 +210,57 @@ final class TargetConfigStore {
             for (k, v) in decoded {
                 if let id = TargetId(rawValue: k) {
                     let kind: TargetKind = TargetId.presetIds.contains(id) ? .preset : .custom
-                    result[id] = TargetConfigEntry(id: id, kind: kind, enabled: true, profile: v).normalized()
+                    let entry = TargetConfigEntry(id: id, kind: kind, enabled: true, profile: v)
+                    result[id] = migrateStoredEntry(entry, isBundleInstalled: isBundleInstalled)
                 }
             }
-            return fillMissingPresets(result)
+            return fillMissingPresets(result, isBundleInstalled: isBundleInstalled)
         }
 
         return result
     }
 
-    private static func presetEntries() -> [TargetId: TargetConfigEntry] {
+    private static func presetEntries(isBundleInstalled: (String) -> Bool) -> [TargetId: TargetConfigEntry] {
         var result: [TargetId: TargetConfigEntry] = [:]
         for id in TargetId.presetIds {
-            result[id] = TargetConfigEntry(id: id, kind: .preset, enabled: true, profile: .defaultFor(id))
+            result[id] = presetEntry(for: id, isBundleInstalled: isBundleInstalled)
         }
         return result
     }
 
-    private static func fillMissingPresets(_ entries: [TargetId: TargetConfigEntry]) -> [TargetId: TargetConfigEntry] {
+    private static func fillMissingPresets(_ entries: [TargetId: TargetConfigEntry],
+                                           isBundleInstalled: (String) -> Bool) -> [TargetId: TargetConfigEntry] {
         var result = entries
         for id in TargetId.presetIds where result[id] == nil {
-            result[id] = TargetConfigEntry(id: id, kind: .preset, enabled: true, profile: .defaultFor(id))
+            result[id] = presetEntry(for: id, isBundleInstalled: isBundleInstalled)
         }
         return result
+    }
+
+    private static func presetEntry(for id: TargetId, isBundleInstalled: (String) -> Bool) -> TargetConfigEntry {
+        let profile = TargetProfile.defaultFor(id).normalized()
+        let enabled = !profile.bundleId.isEmpty && isBundleInstalled(profile.bundleId)
+        return TargetConfigEntry(id: id, kind: .preset, enabled: enabled, profile: profile)
+    }
+
+    private static func migrateStoredEntry(_ entry: TargetConfigEntry,
+                                           isBundleInstalled: (String) -> Bool) -> TargetConfigEntry {
+        var migrated = entry.normalized()
+        guard let definition = PresetTargetCatalog.definition(for: migrated.id) else { return migrated }
+
+        migrated.kind = .preset
+        let previousBundleId = migrated.profile.bundleId.trimmingCharacters(in: .whitespacesAndNewlines)
+        if previousBundleId.isEmpty {
+            migrated.profile.bundleId = definition.bundleId
+            if migrated.enabled {
+                migrated.enabled = isBundleInstalled(definition.bundleId)
+            }
+        }
+        if migrated.profile.displayName == migrated.id.rawValue.capitalized {
+            migrated.profile.displayName = definition.displayName
+        }
+        migrated.profile = migrated.profile.normalized()
+        return migrated
     }
 
     var allTargets: [TargetConfigEntry] {

@@ -4,12 +4,25 @@ import XCTest
 final class TargetProfileTests: XCTestCase {
 
     func testDefaultProfilesForAllTargets() {
+        let expectedBundleIds = [
+            TargetId.codex: "com.openai.codex",
+            .workbuddy: "com.workbuddy.workbuddy",
+            .notion: "notion.id",
+            .codebuddycn: "com.tencent.codebuddycn",
+            .codebuddy: "com.tencent.codebuddy"
+        ]
         for id in TargetId.presetIds {
             let p = TargetProfile.defaultFor(id)
             XCTAssertFalse(p.displayName.isEmpty)
-            XCTAssertTrue(p.bundleId.isEmpty, "默认不得写死 Bundle ID")
+            XCTAssertEqual(p.bundleId, expectedBundleIds[id])
             XCTAssertEqual(p.maxTextLength, 10000)
         }
+    }
+
+    func testPresetDisplayNamesUseProductNames() {
+        XCTAssertEqual(TargetProfile.defaultFor(.workbuddy).displayName, "WorkBuddy")
+        XCTAssertEqual(TargetProfile.defaultFor(.codebuddycn).displayName, "CodeBuddyCN")
+        XCTAssertEqual(TargetProfile.defaultFor(.codebuddy).displayName, "CodeBuddy")
     }
 
     func testNotionDefaultsUseClipboardForAiInput() {
@@ -71,6 +84,7 @@ final class TargetProfileTests: XCTestCase {
         let id = try XCTUnwrap(TargetId(rawValue: "custom_textedit"))
         let p = TargetProfile.defaultFor(id)
         XCTAssertEqual(p.displayName, "Custom_Textedit")
+        XCTAssertTrue(p.bundleId.isEmpty)
         XCTAssertEqual(p.focusMode, .shortcut)
         XCTAssertEqual(p.writeMode, .auto)
     }

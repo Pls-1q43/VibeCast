@@ -18,7 +18,7 @@
   <a href="docs/i18n/ar/README.md">العربية</a>
 </p>
 
-VibeCast 把 Android 手机变成 Mac 上的高效输入面板：手机负责用你熟悉的系统输入法或微信输入法完成语音转文字，Mac 负责把文本实时镜像到 Codex、WorkBuddy、Notion、CodeBuddy 或任意自定义目标应用，并在最终文本同步完成后执行发送。
+VibeCast 把 Android 手机变成 Mac 上的高效输入面板：手机负责用你熟悉的系统输入法或微信输入法完成语音转文字，Mac 负责把文本实时镜像到 Codex、WorkBuddy、Notion、CodeBuddyCN、CodeBuddy 或任意自定义目标应用，并在最终文本同步完成后执行发送。
 
 它的体验很直接：拿起手机说话，在 Mac 上写入；在手机上修改，在 Mac 上同步；确认后发送，让 Vibe Coding 的输入节奏跟上你的思路。
 
@@ -28,7 +28,7 @@ VibeCast 把 Android 手机变成 Mac 上的高效输入面板：手机负责用
 |---|---|
 | 手机即输入面板 | Android Chrome 打开 Mac 提供的页面即可使用，也可以添加到主屏幕 |
 | 熟悉的语音输入 | 继续使用系统输入法、微信输入法或你喜欢的 Android 输入法 |
-| 多目标草稿 | Codex / WorkBuddy / Notion / CodeBuddy 与自定义 App 拥有独立草稿和同步状态 |
+| 多目标草稿 | Codex / WorkBuddy / Notion / CodeBuddyCN / CodeBuddy 与自定义 App 拥有独立草稿和同步状态 |
 | 实时文本镜像 | 手机文本通过 WebSocket 快照同步到 Mac 目标输入框 |
 | 发送前确认 | VibeCast 等待最终 revision 写入成功，再执行 Enter、快捷键或仅同步动作 |
 | 本地优先隐私 | 网页不请求麦克风权限，不传输音频，诊断日志不记录正文或令牌 |

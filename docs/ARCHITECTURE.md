@@ -42,14 +42,14 @@ Mac 端是 Swift 原生菜单栏 App：
 - `FocusController` 负责激活目标应用、执行聚焦策略、读取并校验当前可编辑 Accessibility 元素。
 - `TextWriter` 负责完整文本写入，优先 AXValue，必要时走剪贴板粘贴。
 - `SendAction` 负责按目标 Profile 执行 Enter、自定义快捷键、Accessibility 按钮或仅同步。
-- `TargetConfigStore` 将四个目标 Profile 持久化到 `~/Library/Application Support/VibeCast/targets.json`。
+- `TargetConfigStore` 将预置和自定义目标 Profile 持久化到 `~/Library/Application Support/VibeCast/targets.json`。
 
 ## Web 前端
 
 手机端是 TypeScript + Vite + 原生 DOM：
 
 - `App` 串联草稿、输入法事件、WebSocket 和 UI 卡片。
-- `DraftStore` 为四个目标维护独立草稿、revision、acked revision 和光标位置。
+- `DraftStore` 为每个目标维护独立草稿、revision、acked revision 和光标位置。
 - `IMEController` 监听 `composition*`、`input`、`selectionchange`，普通输入防抖，组合输入节流，发送前强制 flush。
 - `WSClient` 负责 hello 握手、心跳、断线重连和消息分发。
 - `config.ts` 提供配置页，通过 WebSocket 读取/保存 Profile、列出运行应用、测试目标。

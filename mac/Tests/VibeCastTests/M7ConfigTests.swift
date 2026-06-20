@@ -9,7 +9,7 @@ final class M7ConfigTests: XCTestCase {
     }
 
     func testNonNotionAllowsSelectAllReplace() {
-        for id in [TargetId.codex, .workbuddy, .codebuddy] {
+        for id in [TargetId.codex, .workbuddy, .codebuddycn, .codebuddy] {
             XCTAssertTrue(TargetProfile.defaultFor(id).allowSelectAllReplace)
         }
     }
@@ -38,11 +38,38 @@ final class M7ConfigTests: XCTestCase {
     }
 
     func testConfigStoreFillsMissingTargetsWithDefaults() {
-        // 即使配置文件缺失，也应补齐 4 个目标默认值。
-        let store = TargetConfigStore(fileURL: tempConfigURL())
+        // 即使配置文件缺失，也应补齐预置目标默认值。
+        let store = TargetConfigStore(fileURL: tempConfigURL(), isBundleInstalled: { _ in false })
         for id in TargetId.presetIds {
             XCTAssertFalse(store.profile(id).displayName.isEmpty)
+            XCTAssertFalse(store.profile(id).bundleId.isEmpty)
         }
+    }
+
+    func testConfigStoreAutoEnablesInstalledPresetsOnFirstRun() {
+        let installed: Set<String> = ["com.openai.codex", "notion.id", "com.tencent.codebuddycn"]
+        let store = TargetConfigStore(fileURL: tempConfigURL(), isBundleInstalled: { installed.contains($0) })
+
+        XCTAssertTrue(store.entry(.codex)?.enabled == true)
+        XCTAssertFalse(store.entry(.workbuddy)?.enabled == true)
+        XCTAssertTrue(store.entry(.notion)?.enabled == true)
+        XCTAssertTrue(store.entry(.codebuddycn)?.enabled == true)
+        XCTAssertFalse(store.entry(.codebuddy)?.enabled == true)
+    }
+
+    func testConfigStoreMigratesEmptyPresetBundleIds() throws {
+        var profile = TargetProfile.defaultFor(.codex)
+        profile.bundleId = ""
+        let entry = TargetConfigEntry(id: .codex, kind: .preset, enabled: true, profile: profile)
+        let url = tempConfigURL()
+        let data = try JSONEncoder().encode(["targets": [entry]])
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: url)
+
+        let store = TargetConfigStore(fileURL: url, isBundleInstalled: { _ in false })
+
+        XCTAssertEqual(store.profile(.codex).bundleId, "com.openai.codex")
+        XCTAssertFalse(store.entry(.codex)?.enabled == true)
     }
 
     func testConfigStoreCreatesAndDeletesCustomTargets() {

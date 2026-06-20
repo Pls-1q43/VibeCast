@@ -5,7 +5,7 @@ export const PROTOCOL_VERSION = 1;
 
 export type TargetId = string;
 
-export const PRESET_TARGET_IDS: TargetId[] = ["codex", "workbuddy", "notion", "codebuddy"];
+export const PRESET_TARGET_IDS: TargetId[] = ["codex", "workbuddy", "notion", "codebuddycn", "codebuddy"];
 
 export type ErrorCode =
   | "UNPAIRED"
