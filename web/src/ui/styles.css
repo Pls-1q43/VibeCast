@@ -203,7 +203,8 @@ body {
 .card__textarea {
   width: 100%;
   min-height: 96px;
-  resize: vertical;
+  overflow: hidden;
+  resize: none;
   font-size: 16px; /* ≥16px 避免 iOS/部分安卓自动缩放 */
   line-height: 1.5;
   padding: 10px;

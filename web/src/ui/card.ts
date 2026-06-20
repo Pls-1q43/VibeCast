@@ -54,7 +54,10 @@ export class Card {
     this.textarea.autocapitalize = "off";
     this.textarea.spellcheck = false;
     this.textarea.addEventListener("focus", () => cb.onFocusTextarea(targetId));
-    this.textarea.addEventListener("input", () => cb.onInput(targetId));
+    this.textarea.addEventListener("input", () => {
+      this.syncTextareaHeight();
+      cb.onInput(targetId);
+    });
 
     // 操作区
     const actions = el("div", "card__actions");
@@ -65,6 +68,7 @@ export class Card {
 
     this.root.append(header, this.textarea, actions);
     this.setStatus("disconnected");
+    this.syncTextareaHeight();
   }
 
   get element(): HTMLElement {
@@ -77,6 +81,7 @@ export class Card {
 
   setText(text: string, selStart?: number, selEnd?: number): void {
     if (this.textarea.value !== text) this.textarea.value = text;
+    this.syncTextareaHeight();
     if (selStart !== undefined && selEnd !== undefined && document.activeElement === this.textarea) {
       try {
         this.textarea.setSelectionRange(selStart, selEnd);
@@ -127,12 +132,18 @@ export class Card {
 
   /** 文本变化后需重算按钮（空↔非空）。 */
   refreshButtons(): void {
+    this.syncTextareaHeight();
     this.updateButtons();
   }
 
   /** 锁定发送按钮，防重复点击（PRD 5.6）。 */
   lockSend(): void {
     this.sendBtn.disabled = true;
+  }
+
+  private syncTextareaHeight(): void {
+    this.textarea.style.height = "auto";
+    this.textarea.style.height = `${this.textarea.scrollHeight}px`;
   }
 }
 
