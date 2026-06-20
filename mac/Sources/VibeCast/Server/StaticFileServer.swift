@@ -31,9 +31,10 @@ struct StaticFileServer {
         // 去掉前导斜杠并规整。
         let cleaned = rel.hasPrefix("/") ? String(rel.dropFirst()) : rel
 
+        let root = webRoot.standardizedFileURL
         let candidate = webRoot.appendingPathComponent(cleaned).standardizedFileURL
         // 路径穿越防护：必须仍在 webRoot 之内。
-        guard candidate.path.hasPrefix(webRoot.standardizedFileURL.path) else {
+        guard candidate.path == root.path || candidate.path.hasPrefix(root.path + "/") else {
             return nil
         }
         guard let data = try? Data(contentsOf: candidate) else { return nil }

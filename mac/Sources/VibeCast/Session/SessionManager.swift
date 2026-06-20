@@ -78,6 +78,10 @@ final class SessionManager: ServerDelegate {
                 sendError(conn, code: .rateLimited, message: "消息过于频繁")
                 return
             }
+            if SessionManager.requiresActiveController(type), !ensureActive(conn) {
+                sendError(conn, code: .rateLimited, message: "非活动会话，暂不可操作")
+                return
+            }
         }
 
         switch type {
@@ -218,11 +222,6 @@ final class SessionManager: ServerDelegate {
     private func handleSelectTarget(_ conn: Connection, data: Data) {
         guard let env = try? ProtocolCodec.decoder.decode(TargetedEnvelope.self, from: data) else {
             sendError(conn, code: .badMessage, message: "select_target 结构错误")
-            return
-        }
-        // 仅活动控制端可操作目标（单一活动会话）。
-        guard ensureActive(conn) else {
-            sendError(conn, code: .rateLimited, message: "非活动会话，暂不可操作")
             return
         }
         guard config.isUsable(env.targetId) else {
@@ -622,6 +621,20 @@ final class SessionManager: ServerDelegate {
         let ok = limiter.allow(nowMs: Int64(Date().timeIntervalSince1970 * 1000))
         rateLimiters[conn.id] = limiter
         return ok
+    }
+
+    static func requiresActiveController(_ type: String) -> Bool {
+        switch type {
+        case "hello", "ping", "get_status":
+            return false
+        case "select_target", "text_snapshot", "clear", "send",
+             "get_config", "set_config", "test_target", "list_running_apps",
+             "open_accessibility_settings", "create_target", "delete_target",
+             "set_target_enabled":
+            return true
+        default:
+            return false
+        }
     }
 
     var pairedCount: Int {

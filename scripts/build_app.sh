@@ -23,10 +23,8 @@ restore_web_resources() {
   rm -rf "$WEB_RES"
   mkdir -p "$(dirname "$WEB_RES")"
   if [ -d "$BACKUP_DIR/web" ]; then
-    ditto "$BACKUP_DIR/web" "$WEB_RES"
-    if [ ! -d "$BACKUP_DIR/web/assets 2" ]; then
-      rm -rf "$WEB_RES/assets 2"
-    fi
+    mv "$BACKUP_DIR/web" "$WEB_RES"
+    rm -rf "$WEB_RES/assets 2" "$WEB_RES/target-icons 2"
   fi
   rm -rf "$BACKUP_DIR"
   rm -rf "$STAGING_DIR"
@@ -37,6 +35,49 @@ need_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "缺少命令：$1"; exit 1;
   }
+}
+
+clean_bundle_metadata() {
+  local bundle="$1"
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "$bundle"
+    find "$bundle" -exec xattr -c {} \; 2>/dev/null || true
+  fi
+  if command -v dot_clean >/dev/null 2>&1; then
+    dot_clean -m "$bundle" 2>/dev/null || true
+  fi
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "$bundle"
+    find "$bundle" -exec xattr -c {} \; 2>/dev/null || true
+    # Some File Provider backed folders can reattach these across the bundle;
+    # remove them last because strict codesign treats them as detritus.
+    xattr -d com.apple.FinderInfo "$bundle" 2>/dev/null || true
+    xattr -d 'com.apple.fileprovider.fpfs#P' "$bundle" 2>/dev/null || true
+    find "$bundle" -exec xattr -d com.apple.FinderInfo {} \; 2>/dev/null || true
+    find "$bundle" -exec xattr -d 'com.apple.fileprovider.fpfs#P' {} \; 2>/dev/null || true
+  fi
+}
+
+verify_bundle_signature() {
+  local bundle="$1"
+  if codesign --verify --deep --strict --verbose=2 "$bundle"; then
+    return 0
+  fi
+  clean_bundle_metadata "$bundle"
+  codesign --verify --deep --strict --verbose=2 "$bundle"
+}
+
+verify_zip_bundle() {
+  local zip="$1"
+  local verify_dir
+  verify_dir="$(mktemp -d "${TMPDIR:-/tmp}/vibecast-verify.XXXXXX")"
+  ditto -x -k "$zip" "$verify_dir"
+  if verify_bundle_signature "$verify_dir/VibeCast.app"; then
+    rm -rf "$verify_dir"
+    return 0
+  fi
+  rm -rf "$verify_dir"
+  return 1
 }
 
 need_cmd node
@@ -129,13 +170,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 echo "==> 本地签名"
-if command -v xattr >/dev/null 2>&1; then
-  xattr -cr "$APP"
-  find "$APP" -exec xattr -c {} \; 2>/dev/null || true
-fi
-if command -v dot_clean >/dev/null 2>&1; then
-  dot_clean -m "$APP" 2>/dev/null || true
-fi
+clean_bundle_metadata "$APP"
 if command -v codesign >/dev/null 2>&1; then
   CODESIGN_ARGS=(--force --sign "${CODESIGN_IDENTITY:--}")
   if [ -n "${CODESIGN_IDENTITY:-}" ]; then
@@ -164,6 +199,7 @@ if command -v codesign >/dev/null 2>&1; then
     APP_CODESIGN_ARGS+=(--requirements "=designated => identifier \"$BUNDLE_ID\"")
   fi
   codesign "${APP_CODESIGN_ARGS[@]}" "$APP"
+  verify_bundle_signature "$APP"
 else
   echo "未找到 codesign，跳过签名"
 fi
@@ -171,8 +207,12 @@ fi
 echo "==> 生成发布压缩包"
 rm -f "$ZIP"
 ( cd "$STAGING_DIR" && ditto -c -k --sequesterRsrc --keepParent "VibeCast.app" "$ZIP" )
+if command -v codesign >/dev/null 2>&1; then
+  verify_zip_bundle "$ZIP"
+fi
 rm -rf "$DIST_APP"
-mv "$APP" "$DIST_APP"
+ditto --norsrc "$APP" "$DIST_APP"
+clean_bundle_metadata "$DIST_APP"
 
 echo "==> 完成: $DIST_APP"
 echo "==> 发布包: $ZIP"

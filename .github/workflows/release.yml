@@ -62,6 +62,7 @@ jobs:
         run: |
           NODE_OPTIONS="" npm test
           NODE_OPTIONS="" npm run typecheck
+          npm audit --audit-level=high
 
       - name: Test mac
         working-directory: mac

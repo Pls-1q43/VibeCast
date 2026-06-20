@@ -82,6 +82,37 @@ final class ServerTests: XCTestCase {
         XCTAssertNil(HTTPRequest.parse(Data("GET / HTTP/1.1\r\nHost: x".utf8)))
     }
 
+    // MARK: - 静态资源
+
+    func testStaticFileServerServesIndexForRoot() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibecast-static-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("ok".utf8).write(to: root.appendingPathComponent("index.html"))
+
+        let server = StaticFileServer(webRoot: root)
+        let resolved = server.resolve(path: "/")
+
+        XCTAssertEqual(resolved?.contentType, "text/html; charset=utf-8")
+        XCTAssertEqual(String(data: resolved?.data ?? Data(), encoding: .utf8), "ok")
+    }
+
+    func testStaticFileServerRejectsSiblingPrefixTraversal() throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibecast-static-\(UUID().uuidString)", isDirectory: true)
+        let root = base.appendingPathComponent("web", isDirectory: true)
+        let sibling = base.appendingPathComponent("web_evil", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: sibling, withIntermediateDirectories: true)
+        try Data("secret".utf8).write(to: sibling.appendingPathComponent("secret.txt"))
+
+        let server = StaticFileServer(webRoot: root)
+
+        XCTAssertNil(server.resolve(path: "/../web_evil/secret.txt"))
+    }
+
     // MARK: - 配对令牌
 
     func testPairingValidateRejectsWrong() {
