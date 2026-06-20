@@ -56,12 +56,19 @@ enum FocusController {
             break
         }
 
-        // 3) 读取当前聚焦元素并校验
-        guard let element = AXSupport.focusedElement(pid: pid) else {
-            return .notFocused("未取得聚焦控件")
+        // 3) 读取当前聚焦元素并校验。
+        // Electron(如 Notion)激活后 AX 焦点可能略有延迟，重试几次拿可编辑元素，
+        // 解决"光标看着在输入框但首次查询 AXFocusedUIElement 为空"导致的偶发失败。
+        var element: AXUIElement?
+        for attempt in 0..<5 {
+            if let el = AXSupport.focusedElement(pid: pid), AXSupport.isEditableText(el) {
+                element = el
+                break
+            }
+            if attempt < 4 { Thread.sleep(forTimeInterval: 0.08) }
         }
-        guard AXSupport.isEditableText(element) else {
-            return .notFocused("当前聚焦控件不可编辑")
+        guard let element else {
+            return .notFocused("未取得可编辑的聚焦控件（请确认目标输入框处于编辑状态）")
         }
         let role = AXSupport.role(of: element)
         let binding = TargetBinding(targetId: targetId, sessionId: sessionId,
