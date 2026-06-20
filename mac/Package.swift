@@ -12,7 +12,8 @@ let package = Package(
             path: "Sources/VibeCast",
             resources: [
                 .copy("Resources/web"),
-                .copy("Resources/AppIcon.icns")
+                .copy("Resources/AppIcon.icns"),
+                .copy("Resources/StatusBarIconTemplate.png")
             ]
         ),
         .testTarget(

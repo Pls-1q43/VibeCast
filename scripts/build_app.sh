@@ -11,6 +11,7 @@ BUNDLE_ID="com.vibecast.app"
 VERSION="0.1.0"
 WEB_RES="$MAC/Sources/VibeCast/Resources/web"
 APP_ICON="$MAC/Sources/VibeCast/Resources/AppIcon.icns"
+STATUS_BAR_ICON="$MAC/Sources/VibeCast/Resources/StatusBarIconTemplate.png"
 BACKUP_DIR="$(mktemp -d)"
 
 restore_web_resources() {
@@ -75,6 +76,10 @@ cp "$BIN" "$APP/Contents/MacOS/VibeCast"
 
 if [ -f "$APP_ICON" ]; then
   cp "$APP_ICON" "$APP/Contents/Resources/AppIcon.icns"
+fi
+
+if [ -f "$STATUS_BAR_ICON" ]; then
+  cp "$STATUS_BAR_ICON" "$APP/Contents/Resources/StatusBarIconTemplate.png"
 fi
 
 # SwiftPM 资源 bundle（含前端 web/）

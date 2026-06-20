@@ -20,8 +20,10 @@ The VibeCast mark combines three product ideas:
 
 - `vibecast-app-icon.svg` is the editable source for the square app icon.
 - `vibecast-logo.svg` is the horizontal brand lockup for docs and presentation use.
+- `vibecast-status-bar-icon.svg` is the monochrome source for the macOS menu bar.
 
 Runtime exports live in:
 
 - `web/public/` for browser, PWA, and home-screen icons.
 - `mac/Sources/VibeCast/Resources/AppIcon.icns` for the macOS bundle.
+- `mac/Sources/VibeCast/Resources/StatusBarIconTemplate.png` for the macOS menu bar.
