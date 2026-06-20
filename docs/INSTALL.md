@@ -106,4 +106,4 @@ cd ../mac
 swift test
 ```
 
-发布前完整检查见 [0.1 发布检查清单](RELEASE_0_1_CHECKLIST.md)。
+发布规则见 [Release Rules](RELEASE.md)，发布前完整检查见 [0.1 发布检查清单](RELEASE_0_1_CHECKLIST.md)。

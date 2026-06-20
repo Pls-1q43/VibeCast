@@ -41,6 +41,23 @@ jobs:
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
+      - name: Require release notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOTES_FILE="docs/releases/$VERSION.md"
+          if [ ! -s "$NOTES_FILE" ]; then
+            echo "Missing release notes: $NOTES_FILE" >&2
+            echo "Create this file before tagging a release." >&2
+            exit 1
+          fi
+          if ! grep -Eq '[[:alnum:]]' "$NOTES_FILE"; then
+            echo "Release notes must contain human-readable content: $NOTES_FILE" >&2
+            exit 1
+          fi
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -92,11 +109,7 @@ jobs:
           fi
           mkdir -p public
           cp "dist/VibeCast-$VERSION-macos.zip" public/
-          cat > "public/VibeCast-$VERSION-macos.md" <<EOF
-          # VibeCast $VERSION
-
-          See the GitHub Release for the full changelog.
-          EOF
+          cp "docs/releases/$VERSION.md" "public/VibeCast-$VERSION-macos.md"
           echo "$SPARKLE_PRIVATE_ED_KEY" | "$SPARKLE_GENERATE_APPCAST" \
             --ed-key-file - \
             --maximum-deltas 0 \
@@ -113,13 +126,15 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           ASSET="dist/VibeCast-$VERSION-macos.zip#VibeCast $VERSION for macOS"
+          NOTES_FILE="docs/releases/$VERSION.md"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" "$ASSET" --clobber
+            gh release edit "$TAG" --notes-file "$NOTES_FILE"
           else
             gh release create "$TAG" "$ASSET" \
               --verify-tag \
               --title "VibeCast $VERSION" \
-              --generate-notes
+              --notes-file "$NOTES_FILE"
           fi
 
       - name: Publish appcast to GitHub Pages branch

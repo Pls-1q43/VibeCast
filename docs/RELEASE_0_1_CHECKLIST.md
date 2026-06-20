@@ -2,6 +2,8 @@
 
 ## 构建
 
+- [ ] 已为本次版本写好 Release Notes：`docs/releases/0.1.0.md`
+- [ ] Release Notes 覆盖用户可见变化、安装/升级注意事项、已知限制
 - [ ] `cd web && NODE_OPTIONS="" npm test`
 - [ ] `cd web && NODE_OPTIONS="" npm run typecheck`
 - [ ] `cd web && NODE_OPTIONS="" npm run build`
