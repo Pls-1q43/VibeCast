@@ -65,6 +65,17 @@
   line-height: 1.4;
 }
 
+.cfg-permission-hint {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.cfg-permission-hint--warn {
+  color: var(--warn);
+}
+
 .cfg-hero__actions,
 .cfg-row__actions {
   display: flex;

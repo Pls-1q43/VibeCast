@@ -114,7 +114,15 @@ if command -v xattr >/dev/null 2>&1; then
   xattr -cr "$APP"
 fi
 if command -v codesign >/dev/null 2>&1; then
-  codesign --force --deep --sign "${CODESIGN_IDENTITY:--}" "$APP"
+  CODESIGN_ARGS=(--force --deep --sign "${CODESIGN_IDENTITY:--}")
+  if [ -z "${CODESIGN_IDENTITY:-}" ]; then
+    # Ad-hoc signing normally falls back to a cdhash-only designated requirement,
+    # which makes macOS TCC treat every rebuild as a different Accessibility client.
+    # Pin a stable local requirement to the bundle identifier so local updates do
+    # not repeatedly invalidate the user's Accessibility grant.
+    CODESIGN_ARGS+=(--requirements "=designated => identifier \"$BUNDLE_ID\"")
+  fi
+  codesign "${CODESIGN_ARGS[@]}" "$APP"
 else
   echo "未找到 codesign，跳过签名"
 fi

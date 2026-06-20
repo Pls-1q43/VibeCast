@@ -154,7 +154,12 @@ function renderHeader(): HTMLElement {
   conn.dataset.cfgStatus = "";
   conn.textContent = lastStatus;
   const permission = el("div", accessibilityGranted ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
-  permission.textContent = accessibilityGranted ? "辅助功能已授权" : "辅助功能未授权";
+  permission.textContent = accessibilityGranted ? "当前运行版本已授权" : "当前运行版本未授权";
+  const permissionHint = document.createElement("p");
+  permissionHint.className = accessibilityGranted ? "cfg-permission-hint" : "cfg-permission-hint cfg-permission-hint--warn";
+  permissionHint.textContent = accessibilityGranted
+    ? "VibeCast 可以激活、聚焦并写入目标 App。"
+    : "如果系统设置里 VibeCast 已开启但这里仍未授权，请在系统设置中关闭再打开 VibeCast，或退出后重新打开 VibeCast。";
   const actions = el("div", "cfg-hero__actions");
   const refresh = button("刷新运行应用", "btn btn--ghost", () => {
     send({ type: "list_running_apps" });
@@ -165,7 +170,7 @@ function renderHeader(): HTMLElement {
     setStatus("已请求打开 macOS 辅助功能设置");
   });
   actions.append(openSettings, refresh);
-  panel.append(conn, permission, actions);
+  panel.append(conn, permission, permissionHint, actions);
   header.append(titleWrap, panel);
   return header;
 }
@@ -184,7 +189,7 @@ function renderOnboarding(): HTMLElement {
   const list = el("ol", "cfg-checklist");
   list.append(
     checklistItem("连接到 Mac 菜单栏服务", connected),
-    checklistItem("放通 macOS 辅助功能权限", accessibilityGranted),
+    checklistItem("放通当前运行版本的 macOS 辅助功能权限", accessibilityGranted),
     checklistItem("勾选需要在手机端显示的 App", enabledTargets.length > 0),
     checklistItem("为每个启用 App 绑定 Bundle ID", enabledTargets.length > 0 && configuredTargets.length === enabledTargets.length),
     checklistItem("逐个测试写入，不确定发送行为时先选“仅同步不发送”", testedReady),

@@ -111,7 +111,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         }
 
         menu.addItem(makeInfo("已连接手机：\(pairedCount)"))
-        menu.addItem(makeInfo(accessibilityGranted() ? "辅助功能：已授权" : "辅助功能：未授权（写入与发送需要）"))
+        menu.addItem(makeInfo(accessibilityGranted() ? "辅助功能：当前运行版本已授权" : "辅助功能：当前运行版本未授权"))
 
         menu.addItem(.separator())
 
