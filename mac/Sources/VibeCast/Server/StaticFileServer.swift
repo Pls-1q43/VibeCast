@@ -6,8 +6,15 @@ struct StaticFileServer {
     let webRoot: URL
 
     init?() {
-        // SwiftPM `.copy("Resources/web")` → Bundle.module 下的 web 目录。
-        guard let root = Bundle.module.url(forResource: "web", withExtension: nil) else {
+        let candidates = [
+            Bundle.main.resourceURL?
+                .appendingPathComponent("VibeCast_VibeCast.bundle", isDirectory: true)
+                .appendingPathComponent("web", isDirectory: true),
+            Bundle.main.resourceURL?.appendingPathComponent("web", isDirectory: true),
+            Bundle.module.url(forResource: "web", withExtension: nil)
+        ].compactMap { $0 }
+
+        guard let root = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
             return nil
         }
         self.webRoot = root
