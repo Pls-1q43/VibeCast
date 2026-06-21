@@ -4,7 +4,7 @@ Turn your phone into a remote voice-to-text input panel for macOS, designed for 
 
 [中文](../../../README.md) · [English](README.md) · [日本語](../ja/README.md) · [한국어](../ko/README.md) · [Español](../es/README.md) · [हिन्दी](../hi/README.md) · [العربية](../ar/README.md)
 
-VibeCast lets your phone capture text through the keyboard you already use, then mirrors that text into Codex, WorkBuddy, Notion, CodeBuddy, or any configured Mac app. Speech recognition stays with the phone keyboard; VibeCast moves text quickly, locally, and deliberately.
+VibeCast lets your phone capture text through the keyboard you already use, then mirrors that text into Codex, WorkBuddy, Notion, Obsidian, CodeBuddy, or any configured Mac app. Speech recognition stays with the phone keyboard; VibeCast moves text quickly, locally, and deliberately.
 
 ## Highlights
 

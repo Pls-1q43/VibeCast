@@ -5,7 +5,7 @@ export const PROTOCOL_VERSION = 1;
 
 export type TargetId = string;
 
-export const PRESET_TARGET_IDS: TargetId[] = ["codex", "workbuddy", "notion", "codebuddycn", "codebuddy"];
+export const PRESET_TARGET_IDS: TargetId[] = ["codex", "workbuddy", "notion", "obsidian", "codebuddycn", "codebuddy"];
 
 export type ErrorCode =
   | "UNPAIRED"
@@ -103,6 +103,7 @@ export interface TargetInfo {
   available: boolean;
   clearAfterSend: boolean;
   allowEmpty: boolean;
+  syncMode: "mirror" | "editor";
 }
 
 export interface HelloAckMessage {
@@ -174,6 +175,7 @@ export interface TargetProfile {
   maxTextLength: number;
   allowSelectAllReplace: boolean;
   writeMode?: "auto" | "axvalue" | "clipboard_replace" | "clipboard_insert" | "clipboard_paste";
+  syncMode?: "mirror" | "editor";
 }
 
 export interface ConfigTarget {

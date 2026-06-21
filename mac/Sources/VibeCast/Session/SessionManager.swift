@@ -38,8 +38,15 @@ final class SessionManager: ServerDelegate {
     private var sendGate = SendGate()
     /// 每连接消息速率限制，避免旧页面/异常客户端刷爆控制通道。
     private var rateLimiters: [UUID: MessageRateLimiter] = [:]
+    /// editor 同步模式下，每个会话只替换本轮由 VibeCast 插入的文本段。
+    private var editorStates: [EditorSessionKey: EditorInsertionState] = [:]
     private let lock = NSLock()
     private let maxMessageBytes = 128 * 1024
+
+    private struct EditorSessionKey: Hashable {
+        let sessionId: String
+        let targetId: TargetId
+    }
 
     init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore()) {
         self.serverName = serverName
@@ -130,6 +137,7 @@ final class SessionManager: ServerDelegate {
         if activeControllerId == conn.id {
             activeControllerId = nil
             activeBinding = nil
+            editorStates.removeAll()
         }
         let count = paired.count
         lock.unlock()
@@ -148,6 +156,7 @@ final class SessionManager: ServerDelegate {
     func handleSystemWillSleep() {
         lock.lock()
         activeBinding = nil
+        editorStates.removeAll()
         lock.unlock()
         delegate?.sessionDidLog("system will sleep: 清空目标绑定")
     }
@@ -165,6 +174,7 @@ final class SessionManager: ServerDelegate {
         rateLimiters.removeAll()
         activeControllerId = nil
         activeBinding = nil
+        editorStates.removeAll()
         let count = paired.count
         lock.unlock()
         for conn in conns { conn.close() }
@@ -206,6 +216,7 @@ final class SessionManager: ServerDelegate {
             let profile = profileWithResolvedIcon(entry.profile)
             return TargetInfo(id: entry.id, displayName: profile.displayName, available: true,
                               clearAfterSend: profile.clearAfterSend, allowEmpty: profile.allowEmpty,
+                              syncMode: profile.syncMode,
                               iconDataUrl: profile.iconDataUrl)
         }
         send(conn, HelloAckMessage(serverName: serverName,
@@ -253,6 +264,7 @@ final class SessionManager: ServerDelegate {
                 self.lock.lock()
                 self.activeBinding = binding
                 self.revisionGate.reset(env.targetId)
+                self.editorStates = self.editorStates.filter { $0.key.targetId != env.targetId }
                 self.lock.unlock()
                 self.delegate?.sessionDidLog("focused \(env.targetId.rawValue) pid=\(binding.pid) role=\(binding.role ?? "?")")
                 status = TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
@@ -336,9 +348,18 @@ final class SessionManager: ServerDelegate {
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
+            self.lock.lock()
+            let stillFresh = self.revisionGate.shouldApply(targetId, revision: revision)
+            self.lock.unlock()
+            guard stillFresh else {
+                self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                               revision: revision, applied: false, errorCode: .staleRevision))
+                return
+            }
+
             // 剪贴板写入会自行重新激活目标，放宽前台校验（控制端常在另一设备/窗口）。
             let emptyAutoClearUsesClipboard = text.isEmpty && prof.writeMode == .auto && prof.allowSelectAllReplace
-            let requireFrontmost = !(prof.writeMode.usesClipboard || emptyAutoClearUsesClipboard)
+            let requireFrontmost = !(prof.syncMode == .editor || prof.writeMode.usesClipboard || emptyAutoClearUsesClipboard)
             guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
                 self.send(conn, TargetStatusMessage(sessionId: sessionId, targetId: targetId,
@@ -350,21 +371,51 @@ final class SessionManager: ServerDelegate {
                 return
             }
 
-            let result = TextWriter.write(text, to: binding, writeMode: prof.writeMode,
-                                          allowSelectAllReplace: prof.allowSelectAllReplace)
-            switch result {
-            case .applied(let method):
-                self.lock.lock(); self.revisionGate.markApplied(targetId, revision: revision); self.lock.unlock()
-                self.delegate?.sessionDidLog("text_applied \(targetId.rawValue) rev=\(revision) \(DiagnosticsLog.textDigest(text)) via=\(method)")
-                self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
-                                               revision: revision, applied: true, errorCode: nil,
-                                               message: nil, verified: !method.contains("unverified")))
-            case .failed(let m):
-                self.delegate?.sessionDidLog("text_write_failed \(targetId.rawValue) rev=\(revision): \(m)")
-                self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
-                                               revision: revision, applied: false, errorCode: .writeFailed,
-                                               message: m, verified: false))
+            let method: String
+            let verified: Bool
+            if prof.syncMode == .editor {
+                let key = EditorSessionKey(sessionId: sessionId, targetId: targetId)
+                self.lock.lock()
+                let editorState = self.editorStates[key]
+                self.lock.unlock()
+                switch TextWriter.writeEditor(text, to: binding, replacing: editorState) {
+                case .applied(let appliedMethod, let nextState):
+                    method = appliedMethod
+                    verified = false
+                    self.lock.lock()
+                    if let nextState {
+                        self.editorStates[key] = nextState
+                    } else {
+                        self.editorStates.removeValue(forKey: key)
+                    }
+                    self.lock.unlock()
+                case .failed(let message):
+                    self.delegate?.sessionDidLog("text_write_failed \(targetId.rawValue) rev=\(revision): \(message)")
+                    self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                                   revision: revision, applied: false, errorCode: .writeFailed,
+                                                   message: message, verified: false))
+                    return
+                }
+            } else {
+                switch TextWriter.write(text, to: binding, writeMode: prof.writeMode,
+                                        allowSelectAllReplace: prof.allowSelectAllReplace) {
+                case .applied(let appliedMethod):
+                    method = appliedMethod
+                    verified = !appliedMethod.contains("unverified")
+                case .failed(let message):
+                    self.delegate?.sessionDidLog("text_write_failed \(targetId.rawValue) rev=\(revision): \(message)")
+                    self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                                   revision: revision, applied: false, errorCode: .writeFailed,
+                                                   message: message, verified: false))
+                    return
+                }
             }
+
+            self.lock.lock(); self.revisionGate.markApplied(targetId, revision: revision); self.lock.unlock()
+            self.delegate?.sessionDidLog("text_applied \(targetId.rawValue) rev=\(revision) \(DiagnosticsLog.textDigest(text)) via=\(method)")
+            self.send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
+                                           revision: revision, applied: true, errorCode: nil,
+                                           message: nil, verified: verified))
         }
     }
 
@@ -421,7 +472,7 @@ final class SessionManager: ServerDelegate {
             guard let self, let conn else { return }
 
             // 剪贴板写入目标的 SendAction 会自行重新激活，放宽前台校验。
-            let requireFrontmost = !profile.writeMode.usesClipboard
+            let requireFrontmost = !(profile.syncMode == .editor || profile.writeMode.usesClipboard)
             guard FocusController.validate(binding, requireFrontmost: requireFrontmost) else {
                 self.lock.lock(); self.activeBinding = nil; self.lock.unlock()
                 self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
@@ -434,13 +485,23 @@ final class SessionManager: ServerDelegate {
             switch result {
             case .sent:
                 // 标记幂等键，发送动作只执行一次（PRD 13 / 16.6）。
-                self.lock.lock(); self.sendGate.markCommitted(sessionId: msg.sessionId, targetId: targetId, revision: revision); self.lock.unlock()
+                self.lock.lock()
+                self.sendGate.markCommitted(sessionId: msg.sessionId, targetId: targetId, revision: revision)
+                if profile.syncMode == .editor {
+                    self.editorStates.removeValue(forKey: EditorSessionKey(sessionId: msg.sessionId, targetId: targetId))
+                }
+                self.lock.unlock()
                 self.delegate?.sessionDidLog("sent \(targetId.rawValue) rev=\(revision) mode=\(profile.sendMode.rawValue)")
                 self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
                                                   revision: revision, success: true, errorCode: nil, message: nil))
             case .skipped(let m):
                 // 仅同步模式：视为成功（手机端「发送」实为「完成」，PRD 14.2）。
-                self.lock.lock(); self.sendGate.markCommitted(sessionId: msg.sessionId, targetId: targetId, revision: revision); self.lock.unlock()
+                self.lock.lock()
+                self.sendGate.markCommitted(sessionId: msg.sessionId, targetId: targetId, revision: revision)
+                if profile.syncMode == .editor {
+                    self.editorStates.removeValue(forKey: EditorSessionKey(sessionId: msg.sessionId, targetId: targetId))
+                }
+                self.lock.unlock()
                 self.delegate?.sessionDidLog("send-skip \(targetId.rawValue): \(m)")
                 self.send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
                                                   revision: revision, success: true, errorCode: nil, message: m))

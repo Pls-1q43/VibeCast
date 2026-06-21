@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Obsidian">
+  <path fill="#7C5CFF" d="M25 4 9 25l7 31 29 5 10-30L39 8 25 4Z"/>
+  <path fill="#A891FF" d="M25 4 16 56l15-20 8-28-14-4Z"/>
+  <path fill="#4E35B8" d="m31 36 14 25 10-30-16-23-8 28Z"/>
+  <path fill="#2D235C" d="M9 25 31 36 16 56 9 25Z"/>
+  <path fill="#D8D0FF" d="m25 4 14 4 16 23-24 5L25 4Z" opacity=".55"/>
+</svg>

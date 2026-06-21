@@ -8,6 +8,7 @@ describe("targetIcon", () => {
 
   it("falls back to preset icons for known targets", () => {
     expect(targetIconSrc("notion", null)).toBe("./target-icons/notion.svg");
+    expect(targetIconSrc("obsidian", null)).toBe("./target-icons/obsidian.svg");
     expect(targetIconSrc("codebuddycn", null)).toBe("./target-icons/codebuddy.svg");
   });
 

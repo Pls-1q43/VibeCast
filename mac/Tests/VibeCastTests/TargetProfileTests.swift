@@ -8,6 +8,7 @@ final class TargetProfileTests: XCTestCase {
             TargetId.codex: "com.openai.codex",
             .workbuddy: "com.workbuddy.workbuddy",
             .notion: "notion.id",
+            .obsidian: "md.obsidian",
             .codebuddycn: "com.tencent.codebuddycn",
             .codebuddy: "com.tencent.codebuddy"
         ]
@@ -29,10 +30,22 @@ final class TargetProfileTests: XCTestCase {
         // Notion AI 输入框不可靠支持 AXValue，默认使用剪贴板替换并允许 Enter 发送。
         let p = TargetProfile.defaultFor(.notion)
         XCTAssertEqual(p.writeMode, .clipboardReplace)
+        XCTAssertEqual(p.syncMode, .mirror)
         XCTAssertTrue(p.allowSelectAllReplace)
         XCTAssertEqual(p.sendMode, .key)
         XCTAssertEqual(p.sendShortcut, .enter)
         XCTAssertTrue(p.clearAfterSend)
+        XCTAssertEqual(p.focusMode, .preserveLastFocus)
+    }
+
+    func testObsidianDefaultsUseEditorMode() {
+        let p = TargetProfile.defaultFor(.obsidian)
+        XCTAssertEqual(p.displayName, "Obsidian")
+        XCTAssertEqual(p.bundleId, "md.obsidian")
+        XCTAssertEqual(p.syncMode, .editor)
+        XCTAssertEqual(p.writeMode, .clipboardInsert)
+        XCTAssertFalse(p.allowSelectAllReplace)
+        XCTAssertEqual(p.sendMode, .noneSyncOnly)
         XCTAssertEqual(p.focusMode, .preserveLastFocus)
     }
 
@@ -48,10 +61,12 @@ final class TargetProfileTests: XCTestCase {
         var p = TargetProfile.defaultFor(.codex)
         p.bundleId = "com.example.codex"
         p.focusShortcut = KeyShortcut(modifiers: ["command"], key: "l")
+        p.syncMode = .editor
         let data = try JSONEncoder().encode(p)
         let back = try JSONDecoder().decode(TargetProfile.self, from: data)
         XCTAssertEqual(back.bundleId, "com.example.codex")
         XCTAssertEqual(back.focusShortcut, KeyShortcut(modifiers: ["command"], key: "l"))
+        XCTAssertEqual(back.syncMode, .editor)
     }
 
     func testKeyShortcutEnterConstant() {
@@ -65,12 +80,15 @@ final class TargetProfileTests: XCTestCase {
         p.focusWaitMs = 0
         p.maxTextLength = 100_000
         p.writeMode = .clipboardPaste
+        p.syncMode = .editor
+        p.allowSelectAllReplace = true
         p.iconDataUrl = "https://example.com/icon.png"
         let normalized = p.normalized()
         XCTAssertEqual(normalized.displayName, "Target")
         XCTAssertEqual(normalized.focusWaitMs, 50)
         XCTAssertEqual(normalized.maxTextLength, 50_000)
-        XCTAssertEqual(normalized.writeMode, .clipboardReplace)
+        XCTAssertEqual(normalized.writeMode, .clipboardInsert)
+        XCTAssertFalse(normalized.allowSelectAllReplace)
         XCTAssertNil(normalized.iconDataUrl)
     }
 

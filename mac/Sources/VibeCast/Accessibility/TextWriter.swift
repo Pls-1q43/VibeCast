@@ -13,6 +13,17 @@ enum WriteResult {
     case failed(String)
 }
 
+struct EditorInsertionState: Equatable, Sendable {
+    let location: Int
+    let length: Int
+    let text: String
+}
+
+enum EditorWriteResult {
+    case applied(method: String, state: EditorInsertionState?)
+    case failed(String)
+}
+
 enum TextWriter {
 
     /// 把完整文本写入已校验有效的绑定目标。调用方必须先 FocusController.validate 通过。
@@ -60,6 +71,58 @@ enum TextWriter {
         // 读取回填值比对；某些控件归一化空白，故只要求前缀/全等其一。
         guard let current = AXSupport.value(of: element) else { return false }
         return current == text
+    }
+
+    /// 编辑器模式：首次在当前选区插入；后续只替换本轮由 VibeCast 插入的文本段。
+    /// 任何选区读取/设置失败都安全失败，绝不降级为 Cmd+A 全选替换。
+    static func writeEditor(_ text: String, to binding: TargetBinding,
+                            replacing state: EditorInsertionState?) -> EditorWriteResult {
+        guard activateBindingApp(binding) else {
+            return .failed("无法将目标置于前台（编辑器粘贴需要）")
+        }
+        guard !(text.isEmpty && state == nil) else {
+            return .applied(method: "editor_clear_noop", state: nil)
+        }
+
+        let range: CFRange
+        if let state {
+            range = CFRangeMake(state.location, state.length)
+        } else {
+            guard let current = AXSupport.selectedTextRange(of: binding.element) else {
+                return .failed("编辑器模式无法读取当前选区，已拒绝写入以保护文档")
+            }
+            range = current
+        }
+
+        guard AXSupport.setSelectedTextRange(binding.element, range: range) else {
+            return .failed("编辑器模式无法设置本轮输入选区，已拒绝写入以保护文档")
+        }
+        Thread.sleep(forTimeInterval: 0.04)
+
+        if text.isEmpty {
+            if range.length > 0 {
+                guard KeyboardSynth.press(KeyShortcut(modifiers: [], key: "delete")) else {
+                    return .failed("无法删除本轮编辑器输入")
+                }
+                Thread.sleep(forTimeInterval: 0.06)
+            }
+            return .applied(method: "editor_clear", state: nil)
+        }
+
+        let method = state == nil ? "editor_insert" : "editor_replace"
+        switch pasteText(text, to: binding, method: method) {
+        case .applied(let appliedMethod):
+            let next = EditorInsertionState(location: range.location,
+                                            length: utf16Length(text),
+                                            text: text)
+            return .applied(method: appliedMethod, state: next)
+        case .failed(let message):
+            return .failed(message)
+        }
+    }
+
+    static func utf16Length(_ text: String) -> Int {
+        (text as NSString).length
     }
 
     // MARK: - 剪贴板降级（PRD 10.2）

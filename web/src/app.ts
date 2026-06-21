@@ -22,7 +22,7 @@ export class App {
   private sessions = new Map<TargetId, string>();
   /** 每目标最近一次 target_status 状态，用于判断是否已聚焦。 */
   private targetFocused = new Map<TargetId, boolean>();
-  private targetOptions = new Map<TargetId, { clearAfterSend: boolean; allowEmpty: boolean }>();
+  private targetOptions = new Map<TargetId, { clearAfterSend: boolean; allowEmpty: boolean; syncMode: "mirror" | "editor" }>();
   private targetNames = new Map<TargetId, string>();
   private pendingSends = new Map<TargetId, { sessionId: string; revision: number }>();
 
@@ -143,11 +143,13 @@ export class App {
       this.targetOptions.set(target.id, {
         clearAfterSend: target.clearAfterSend,
         allowEmpty: target.allowEmpty,
+        syncMode: target.syncMode,
       });
       if (!this.cards.has(target.id)) {
         this.addCard(target);
       } else {
         this.cards.get(target.id)?.setAllowEmpty(target.allowEmpty);
+        this.cards.get(target.id)?.setSyncMode(target.syncMode);
       }
     }
 
@@ -173,6 +175,7 @@ export class App {
     const d = this.store.get(id);
     card.setText(d.text, d.selectionStart, d.selectionEnd);
     card.setAllowEmpty(target.allowEmpty);
+    card.setSyncMode(target.syncMode);
     card.refreshButtons();
 
     const ime = new IMEController(card.textarea, {

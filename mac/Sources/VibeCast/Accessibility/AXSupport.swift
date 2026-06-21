@@ -120,6 +120,27 @@ enum AXSupport {
         }
     }
 
+    /// 读取当前文本选区。复杂编辑器若不暴露该属性，调用方必须安全失败。
+    static func selectedTextRange(of element: AXUIElement) -> CFRange? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &value) == .success,
+              let axValue = value else {
+            return nil
+        }
+        var range = CFRange()
+        guard AXValueGetValue((axValue as! AXValue), .cfRange, &range) else { return nil }
+        return range
+    }
+
+    /// 设置当前文本选区。用于 editor 模式只替换本轮插入段，禁止退回整页全选。
+    @discardableResult
+    static func setSelectedTextRange(_ element: AXUIElement, range: CFRange) -> Bool {
+        guard let axValue = AXValueCreate(.cfRange, withUnsafePointer(to: range, { $0 })) else {
+            return false
+        }
+        return AXUIElementSetAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, axValue) == .success
+    }
+
     /// 在某进程窗口树中查找标题包含给定文本的按钮并按下（AXPress）。
     /// 仅遍历有限深度，避免在复杂界面上无限递归。返回是否成功按下。
     static func pressButton(pid: pid_t, titleContains: String, maxDepth: Int = 12) -> Bool {

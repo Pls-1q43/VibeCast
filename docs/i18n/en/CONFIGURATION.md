@@ -27,6 +27,7 @@ Use the menu bar configuration page for normal editing.
 | `bundleId` | macOS app Bundle ID |
 | `focusMode` | Shortcut, preserve last focus, Accessibility lookup, or custom |
 | `writeMode` | `auto`, `axvalue`, `clipboard_replace`, or `clipboard_insert` |
+| `syncMode` | `mirror` writes the full draft; `editor` only replaces text inserted in this input round |
 | `allowSelectAllReplace` | Allows Cmd+A replacement when explicitly safe |
 | `sendMode` | Key, custom shortcut, accessibility button, or sync-only |
 | `maxTextLength` | Maximum text length for one snapshot |
@@ -35,5 +36,6 @@ Use the menu bar configuration page for normal editing.
 
 - Test every target before daily use.
 - Keep `allowSelectAllReplace=false` for ordinary document pages.
+- Use `syncMode=editor` for Obsidian or ordinary Notion document blocks.
 - Prefer `sendMode=none` while tuning a new target.
 - Re-test after target apps update their UI or shortcuts.

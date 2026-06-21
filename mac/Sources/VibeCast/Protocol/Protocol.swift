@@ -11,9 +11,10 @@ struct TargetId: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStr
     static let codex = TargetId(rawValue: "codex")!
     static let workbuddy = TargetId(rawValue: "workbuddy")!
     static let notion = TargetId(rawValue: "notion")!
+    static let obsidian = TargetId(rawValue: "obsidian")!
     static let codebuddycn = TargetId(rawValue: "codebuddycn")!
     static let codebuddy = TargetId(rawValue: "codebuddy")!
-    static let presetIds: [TargetId] = [.codex, .workbuddy, .notion, .codebuddycn, .codebuddy]
+    static let presetIds: [TargetId] = [.codex, .workbuddy, .notion, .obsidian, .codebuddycn, .codebuddy]
 
     init?(_ rawValue: String) {
         self.init(rawValue: rawValue)
@@ -177,15 +178,17 @@ struct TargetInfo: Codable, Sendable {
     let available: Bool
     let clearAfterSend: Bool
     let allowEmpty: Bool
+    let syncMode: SyncMode
 
     init(id: TargetId, displayName: String, available: Bool, clearAfterSend: Bool = false, allowEmpty: Bool = false,
-         iconDataUrl: String? = nil) {
+         syncMode: SyncMode = .mirror, iconDataUrl: String? = nil) {
         self.id = id
         self.displayName = displayName
         self.iconDataUrl = iconDataUrl
         self.available = available
         self.clearAfterSend = clearAfterSend
         self.allowEmpty = allowEmpty
+        self.syncMode = syncMode
     }
 }
 

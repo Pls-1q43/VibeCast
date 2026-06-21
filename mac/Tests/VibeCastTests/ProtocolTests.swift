@@ -33,16 +33,17 @@ final class ProtocolTests: XCTestCase {
         let data = try ProtocolCodec.encode(ack)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(obj["type"] as? String, "hello_ack")
-        XCTAssertEqual((obj["targets"] as? [[String: Any]])?.count, 5)
+        XCTAssertEqual((obj["targets"] as? [[String: Any]])?.count, 6)
         let first = (obj["targets"] as! [[String: Any]])[0]
         XCTAssertNotNil(first["clearAfterSend"])
         XCTAssertNotNil(first["allowEmpty"])
         XCTAssertNotNil(first["iconDataUrl"])
+        XCTAssertNotNil(first["syncMode"])
     }
 
     func testAllTargetIdsCovered() {
         XCTAssertEqual(Set(TargetId.presetIds.map(\.rawValue)),
-                       ["codex", "workbuddy", "notion", "codebuddycn", "codebuddy"])
+                       ["codex", "workbuddy", "notion", "obsidian", "codebuddycn", "codebuddy"])
     }
 
     func testCustomTargetIdDecode() throws {

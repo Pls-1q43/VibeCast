@@ -30,6 +30,12 @@ enum SendMode: String, Codable {
     case noneSyncOnly = "none"
 }
 
+/// 同步语义：mirror 写完整草稿；editor 只替换本轮由 VibeCast 插入的文本段。
+enum SyncMode: String, Codable, Sendable {
+    case mirror
+    case editor
+}
+
 extension WriteMode {
     var usesClipboard: Bool {
         self == .clipboardReplace || self == .clipboardInsert || self == .clipboardPaste
@@ -66,25 +72,27 @@ struct TargetProfile: Codable {
     var allowSelectAllReplace: Bool
     /// 文本写入策略。Electron/contenteditable（如 Notion AI 对话框）用 clipboardPaste。
     var writeMode: WriteMode
+    /// 同步语义。复杂编辑器用 editor，避免全量镜像清空整页文档。
+    var syncMode: SyncMode
 
-    // 向后兼容：旧配置文件无 writeMode 时默认 .auto。
+    // 向后兼容：旧配置文件无 writeMode/syncMode 时默认 .auto/.mirror。
     enum CodingKeys: String, CodingKey {
         case displayName, bundleId, iconDataUrl, activationMode, launchIfNotRunning, focusMode, focusShortcut
         case focusWaitMs, sendMode, sendShortcut, sendButtonTitleContains, clearAfterSend
-        case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode
+        case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode, syncMode
     }
 
     init(displayName: String, bundleId: String, activationMode: ActivationMode, launchIfNotRunning: Bool,
          focusMode: FocusMode, focusShortcut: KeyShortcut?, focusWaitMs: Int, sendMode: SendMode,
          sendShortcut: KeyShortcut?, sendButtonTitleContains: String?, clearAfterSend: Bool,
          allowEmpty: Bool, keepForeground: Bool, maxTextLength: Int, allowSelectAllReplace: Bool,
-         writeMode: WriteMode, iconDataUrl: String? = nil) {
+         writeMode: WriteMode, syncMode: SyncMode = .mirror, iconDataUrl: String? = nil) {
         self.displayName = displayName; self.bundleId = bundleId; self.iconDataUrl = iconDataUrl; self.activationMode = activationMode
         self.launchIfNotRunning = launchIfNotRunning; self.focusMode = focusMode; self.focusShortcut = focusShortcut
         self.focusWaitMs = focusWaitMs; self.sendMode = sendMode; self.sendShortcut = sendShortcut
         self.sendButtonTitleContains = sendButtonTitleContains; self.clearAfterSend = clearAfterSend
         self.allowEmpty = allowEmpty; self.keepForeground = keepForeground; self.maxTextLength = maxTextLength
-        self.allowSelectAllReplace = allowSelectAllReplace; self.writeMode = writeMode
+        self.allowSelectAllReplace = allowSelectAllReplace; self.writeMode = writeMode; self.syncMode = syncMode
     }
 
     init(from decoder: Decoder) throws {
@@ -106,6 +114,7 @@ struct TargetProfile: Codable {
         maxTextLength = try c.decode(Int.self, forKey: .maxTextLength)
         allowSelectAllReplace = try c.decode(Bool.self, forKey: .allowSelectAllReplace)
         writeMode = try c.decodeIfPresent(WriteMode.self, forKey: .writeMode) ?? .auto
+        syncMode = try c.decodeIfPresent(SyncMode.self, forKey: .syncMode) ?? .mirror
     }
 
     static func defaultFor(_ id: TargetId) -> TargetProfile {
@@ -122,6 +131,15 @@ struct TargetProfile: Codable {
                 sendButtonTitleContains: nil,
                 clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
                 allowSelectAllReplace: true, writeMode: .clipboardReplace)
+        }
+        if id == .obsidian {
+            return TargetProfile(
+                displayName: name, bundleId: bundleId, activationMode: .bundleId,
+                launchIfNotRunning: false, focusMode: .preserveLastFocus, focusShortcut: nil,
+                focusWaitMs: 300, sendMode: .noneSyncOnly, sendShortcut: .enter,
+                sendButtonTitleContains: nil,
+                clearAfterSend: true, allowEmpty: false, keepForeground: false, maxTextLength: 10000,
+                allowSelectAllReplace: false, writeMode: .clipboardInsert, syncMode: .editor)
         }
         return TargetProfile(
             displayName: name, bundleId: bundleId, activationMode: .bundleId,
@@ -144,6 +162,7 @@ enum PresetTargetCatalog {
         PresetTargetDefinition(id: .codex, displayName: "Codex", bundleId: "com.openai.codex"),
         PresetTargetDefinition(id: .workbuddy, displayName: "WorkBuddy", bundleId: "com.workbuddy.workbuddy"),
         PresetTargetDefinition(id: .notion, displayName: "Notion", bundleId: "notion.id"),
+        PresetTargetDefinition(id: .obsidian, displayName: "Obsidian", bundleId: "md.obsidian"),
         PresetTargetDefinition(id: .codebuddycn, displayName: "CodeBuddyCN", bundleId: "com.tencent.codebuddycn"),
         PresetTargetDefinition(id: .codebuddy, displayName: "CodeBuddy", bundleId: "com.tencent.codebuddy")
     ]
@@ -386,6 +405,12 @@ extension TargetProfile {
         }
         if p.writeMode == .clipboardInsert {
             p.allowSelectAllReplace = false
+        }
+        if p.syncMode == .editor {
+            p.allowSelectAllReplace = false
+            if p.writeMode == .clipboardReplace || p.writeMode == .clipboardPaste {
+                p.writeMode = .clipboardInsert
+            }
         }
         return p
     }

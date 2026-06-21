@@ -18,7 +18,7 @@
   <a href="docs/i18n/ar/README.md">العربية</a>
 </p>
 
-VibeCast 把手机变成 Mac 上的高效输入面板：手机负责用你熟悉的系统输入法或微信输入法完成语音转文字，Mac 负责把文本实时镜像到 Codex、WorkBuddy、Notion、CodeBuddyCN、CodeBuddy 或任意自定义目标应用，并在最终文本同步完成后执行发送。
+VibeCast 把手机变成 Mac 上的高效输入面板：手机负责用你熟悉的系统输入法或微信输入法完成语音转文字，Mac 负责把文本实时镜像到 Codex、WorkBuddy、Notion、Obsidian、CodeBuddyCN、CodeBuddy 或任意自定义目标应用，并在最终文本同步完成后执行发送。
 
 它的体验很直接：拿起手机说话，在 Mac 上写入；在手机上修改，在 Mac 上同步；确认后发送，让 Vibe Coding 的输入节奏跟上你的思路。
 
@@ -38,12 +38,23 @@ VibeCast 把手机变成 Mac 上的高效输入面板：手机负责用你熟悉
 |---|---|
 | 手机即输入面板 | 手机浏览器打开 Mac 提供的页面即可使用，也可以添加到主屏幕 |
 | 熟悉的语音输入 | 继续使用系统输入法、微信输入法或你喜欢的手机输入法 |
-| 多目标草稿 | Codex / WorkBuddy / Notion / CodeBuddyCN / CodeBuddy 与自定义 App 拥有独立草稿和同步状态 |
+| 多目标草稿 | Codex / WorkBuddy / Notion / Obsidian / CodeBuddyCN / CodeBuddy 与自定义 App 拥有独立草稿和同步状态 |
 | 实时文本镜像 | 手机文本通过 WebSocket 快照同步到 Mac 目标输入框 |
 | 发送前确认 | VibeCast 等待最终 revision 写入成功，再执行 Enter、快捷键或仅同步动作 |
 | 本地优先隐私 | 网页不请求麦克风权限，不传输音频，诊断日志不记录正文或令牌 |
 | 可配置目标 | 配置 Bundle ID、聚焦方式、写入方式、发送方式和安全写入护栏 |
 | 多语言体验 | 手机端、配置页、macOS 菜单和用户文档支持 7 种语言 |
+
+## 输入模式
+
+VibeCast 支持两类同步语义，可以按目标 App 的输入区域选择：
+
+| 模式 | 适用场景 | 行为 |
+|---|---|---|
+| 对话框模式 | Codex、WorkBuddy、Notion AI、CodeBuddy 等单一输入框 | 手机草稿作为完整内容镜像到目标输入框，适合发送前反复修改整段提示词或消息 |
+| 编辑器模式 | Obsidian、Notion 普通文档块、富文本编辑器 | 首次在当前光标位置插入，本轮后续同步只替换 VibeCast 插入的这一段，不会清空整个编辑器 |
+
+Notion 默认保持对话框模式，适合 Notion AI。Obsidian 作为预置目标默认启用编辑器模式：先在 Mac 端把光标放到目标笔记位置，再用手机输入；点击“完成”后，Mac 端文本保留，手机端本轮输入清空。
 
 ## 相比连续麦克风
 

@@ -14,16 +14,23 @@ final class M7ConfigTests: XCTestCase {
         }
     }
 
+    func testObsidianDefaultDisablesSelectAllReplace() {
+        XCTAssertFalse(TargetProfile.defaultFor(.obsidian).allowSelectAllReplace)
+        XCTAssertEqual(TargetProfile.defaultFor(.obsidian).syncMode, .editor)
+    }
+
     func testProfileCodableIncludesNewFields() throws {
         var p = TargetProfile.defaultFor(.notion)
         p.sendButtonTitleContains = "发送"
         p.allowSelectAllReplace = false
         p.iconDataUrl = "data:image/png;base64,ZmFrZQ=="
+        p.syncMode = .editor
         let data = try JSONEncoder().encode(p)
         let back = try JSONDecoder().decode(TargetProfile.self, from: data)
         XCTAssertEqual(back.sendButtonTitleContains, "发送")
         XCTAssertFalse(back.allowSelectAllReplace)
         XCTAssertEqual(back.iconDataUrl, "data:image/png;base64,ZmFrZQ==")
+        XCTAssertEqual(back.syncMode, .editor)
     }
 
     func testSendActionNoneSyncOnlySkips() {

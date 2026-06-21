@@ -21,6 +21,7 @@ const PRESET_LABELS: Record<string, string> = {
   codex: "Codex",
   workbuddy: "WorkBuddy",
   notion: "Notion",
+  obsidian: "Obsidian",
   codebuddycn: "CodeBuddyCN",
   codebuddy: "CodeBuddy",
 };
@@ -313,6 +314,7 @@ function renderTargetRow(target: ConfigTarget): HTMLElement {
   const p: TargetProfile = {
     ...target.profile,
     writeMode: target.profile.writeMode === "clipboard_paste" ? "clipboard_replace" : target.profile.writeMode,
+    syncMode: target.profile.syncMode ?? "mirror",
   };
   const row = el("article", "cfg-row");
   row.dataset.target = target.id;
@@ -452,6 +454,18 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
     wrapField(i18n.t("cfg.focusKey"), focusShortcutKey),
     wrapField(i18n.t("cfg.focusMods"), focusShortcutMods),
     wrapField(i18n.t("cfg.focusWait"), numberInput(p.focusWaitMs, (v) => (p.focusWaitMs = v))),
+    wrapField(i18n.t("cfg.syncMode"), select(p.syncMode ?? "mirror", [
+      ["mirror", i18n.t("cfg.syncMirror")],
+      ["editor", i18n.t("cfg.syncEditor")],
+    ], (v) => {
+      p.syncMode = v as TargetProfile["syncMode"];
+      if (v === "editor") {
+        p.allowSelectAllReplace = false;
+        if (p.writeMode === "clipboard_replace" || p.writeMode === "clipboard_paste") {
+          p.writeMode = "clipboard_insert";
+        }
+      }
+    }), i18n.t("cfg.syncEditorHint")),
     wrapField(i18n.t("cfg.writeMode"), select(p.writeMode ?? "auto", [
       ["auto", i18n.t("cfg.writeAuto")],
       ["axvalue", i18n.t("cfg.writeAx")],
@@ -460,6 +474,10 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
     ], (v) => {
       p.writeMode = v as TargetProfile["writeMode"];
       if (v === "clipboard_insert") p.allowSelectAllReplace = false;
+      if ((v === "clipboard_replace" || v === "clipboard_paste") && p.syncMode === "editor") {
+        p.writeMode = "clipboard_insert";
+        p.allowSelectAllReplace = false;
+      }
     })),
     wrapField(i18n.t("cfg.allowReplace"), checkbox(p.allowSelectAllReplace, (v) => (p.allowSelectAllReplace = v)), i18n.t("cfg.allowReplaceHint")),
     wrapField(i18n.t("cfg.sendMode"), select(p.sendMode, [
@@ -485,6 +503,8 @@ function advancedHint(targetId: TargetId): HTMLElement {
   p.className = "cfg-hint";
   p.textContent = targetId === "notion"
     ? i18n.t("cfg.notionHint")
+    : targetId === "obsidian"
+      ? i18n.t("cfg.obsidianHint")
     : i18n.t("cfg.defaultHint");
   return p;
 }
@@ -658,6 +678,9 @@ function validateProfile(p: TargetProfile): string[] {
   if (!p.bundleId.trim()) issues.push(i18n.t("cfg.issueBundle"));
   if (p.focusWaitMs < 50 || p.focusWaitMs > 5000) issues.push(i18n.t("cfg.issueFocusWait"));
   if (p.maxTextLength < 1 || p.maxTextLength > 50000) issues.push(i18n.t("cfg.issueMaxLength"));
+  if (p.syncMode === "editor" && p.allowSelectAllReplace) {
+    issues.push(i18n.t("cfg.issueEditorReplace"));
+  }
   if ((p.writeMode === "clipboard_replace" || p.writeMode === "clipboard_paste") && !p.allowSelectAllReplace) {
     issues.push(i18n.t("cfg.issueClipboard"));
   }

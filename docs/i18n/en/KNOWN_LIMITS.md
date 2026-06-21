@@ -14,12 +14,17 @@ VibeCast mirrors text produced by the phone keyboard into selected Mac apps. The
 - Electron, WebView, and rich editors vary in Accessibility support.
 - Use the Test button as the source of truth for each target.
 - Re-test after target apps change shortcuts or UI structure.
+- `syncMode=editor` depends on readable and writable Accessibility text selection; if VibeCast cannot confirm the inserted segment, it fails safely instead of selecting the whole page.
 
 ## Notion
 
 - Notion AI input: `clipboard_replace` can work well after confirming focus.
-- Document blocks: use preserve-last-focus, cursor insert, or sync-only.
+- Document blocks: use preserve-last-focus, `syncMode=editor`, and sync-only.
 - Keep select-all replacement disabled for ordinary pages.
+
+## Obsidian
+
+Obsidian defaults to `syncMode=editor`. Put the cursor in the target note first; VibeCast inserts at that location and only replaces that input-round segment while you edit on the phone.
 
 ## Privacy
 

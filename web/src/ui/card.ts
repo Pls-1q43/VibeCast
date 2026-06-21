@@ -23,6 +23,7 @@ export class Card {
   private refocusBtn: HTMLButtonElement;
   private status: SyncStatus = "disconnected";
   private allowEmpty = false;
+  private syncMode: "mirror" | "editor" = "mirror";
 
   constructor(targetId: TargetId, displayName: string, iconDataUrl: string | null | undefined, private i18n: I18n, cb: CardCallbacks) {
     this.targetId = targetId;
@@ -100,6 +101,11 @@ export class Card {
     this.updateButtons();
   }
 
+  setSyncMode(syncMode: "mirror" | "editor"): void {
+    this.syncMode = syncMode;
+    this.updateButtons();
+  }
+
   setStatus(status: SyncStatus, detail?: string | null): void {
     this.status = status;
     const label = this.i18n.status(status);
@@ -122,7 +128,9 @@ export class Card {
         ? this.i18n.t("card.sending")
         : this.status === "syncing"
           ? this.i18n.t("card.syncing")
-          : this.i18n.t("card.send");
+          : this.syncMode === "editor"
+            ? this.i18n.t("card.done")
+            : this.i18n.t("card.send");
 
     this.clearBtn.disabled = locked || !hasText;
     // 重新聚焦：仅在失焦/失败相关状态下提供

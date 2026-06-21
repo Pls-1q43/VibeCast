@@ -16,15 +16,20 @@ VibeCast 的核心体验是把手机输入法产生的文本稳定镜像到 Mac 
 3. AXValue 直写失败时，只有目标配置允许，VibeCast 才会降级为剪贴板写入。
 4. 目标应用更新后，快捷键、窗口结构或输入框行为可能变化，重新测试目标配置即可恢复稳定体验。
 5. 目标绑定来自明确的选择和聚焦流程，避免文本写入到意外位置。
+6. `syncMode=editor` 依赖目标应用暴露可读写的文本选区。若 VibeCast 无法确认本轮插入段，会停止同步并提示失败，不会退回整页全选替换。
 
 ## Notion 最佳实践
 
 Notion AI 输入框和普通文档块的行为不同：
 
 - Notion AI 对话框：确认焦点在 AI 输入框内，可使用 `clipboard_replace`。
-- 当前文本块：先手动点好文本块，使用 `preserve_last_focus`，并将发送策略设为 `none` 或使用光标插入。
+- 当前文本块：先手动点好文本块，使用 `preserve_last_focus`、`syncMode=editor`、`sendMode=none`。
 
 对普通页面保持 `allowSelectAllReplace=false`，可以避免整页内容被错误替换。
+
+## Obsidian 最佳实践
+
+Obsidian 预置目标默认使用 `syncMode=editor`。使用前先在 Mac 端把光标放到目标笔记位置；手机端输入会插入该位置，并在本轮输入过程中只替换这一段。点击“完成”后，Mac 文本保留，手机本轮输入清空，下一轮会从新的编辑器光标位置开始。
 
 ## 隐私与控制
 

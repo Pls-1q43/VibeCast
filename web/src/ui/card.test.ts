@@ -30,6 +30,16 @@ describe("Card", () => {
     expect(card.textarea.style.height).toBe("220px");
     expect(onInput).toHaveBeenCalledWith("codex");
   });
+
+  it("uses the done label in editor mode", () => {
+    const card = makeCard();
+
+    card.setText("draft");
+    card.setSyncMode("editor");
+    card.setStatus("focused");
+
+    expect(card.element.querySelector(".btn--primary")?.textContent).toBe("card.done");
+  });
 });
 
 function makeCard(overrides: Partial<ConstructorParameters<typeof Card>[4]> = {}): Card {
