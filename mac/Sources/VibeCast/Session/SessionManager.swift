@@ -381,7 +381,9 @@ final class SessionManager: ServerDelegate {
                 self.lock.lock()
                 let editorState = self.editorStates[key]
                 self.lock.unlock()
-                switch TextWriter.writeEditor(text, to: binding, replacing: editorState) {
+                let allowUndoPasteFallback = targetId == .obsidian || binding.bundleId == "md.obsidian"
+                switch TextWriter.writeEditor(text, to: binding, replacing: editorState,
+                                              allowUndoPasteFallback: allowUndoPasteFallback) {
                 case .applied(let appliedMethod, let nextState):
                     method = appliedMethod
                     verified = false

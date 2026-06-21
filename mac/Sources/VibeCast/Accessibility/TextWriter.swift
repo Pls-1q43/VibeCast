@@ -13,10 +13,28 @@ enum WriteResult {
     case failed(String)
 }
 
+enum EditorInsertionStrategy: Equatable, Sendable {
+    case selectedRange
+    case undoPaste
+}
+
 struct EditorInsertionState: Equatable, Sendable {
+    let strategy: EditorInsertionStrategy
     let location: Int
     let length: Int
     let text: String
+
+    init(location: Int, length: Int, text: String, strategy: EditorInsertionStrategy = .selectedRange) {
+        self.strategy = strategy
+        self.location = location
+        self.length = length
+        self.text = text
+    }
+
+    static func undoPaste(text: String) -> EditorInsertionState {
+        EditorInsertionState(location: 0, length: TextWriter.utf16Length(text),
+                             text: text, strategy: .undoPaste)
+    }
 }
 
 enum EditorWriteResult {
@@ -74,14 +92,18 @@ enum TextWriter {
     }
 
     /// 编辑器模式：首次在当前选区插入；后续只替换本轮由 VibeCast 插入的文本段。
-    /// 任何选区读取/设置失败都安全失败，绝不降级为 Cmd+A 全选替换。
+    /// 任何选区读取/设置失败都不会降级为 Cmd+A 全选替换；必要时可启用撤销粘贴回退。
     static func writeEditor(_ text: String, to binding: TargetBinding,
-                            replacing state: EditorInsertionState?) -> EditorWriteResult {
+                            replacing state: EditorInsertionState?,
+                            allowUndoPasteFallback: Bool = false) -> EditorWriteResult {
         guard activateBindingApp(binding) else {
             return .failed("无法将目标置于前台（编辑器粘贴需要）")
         }
         guard !(text.isEmpty && state == nil) else {
             return .applied(method: "editor_clear_noop", state: nil)
+        }
+        if allowUndoPasteFallback, state?.strategy == .undoPaste {
+            return writeEditorViaUndoPaste(text, to: binding, replacing: state)
         }
 
         let range: CFRange
@@ -89,12 +111,18 @@ enum TextWriter {
             range = CFRangeMake(state.location, state.length)
         } else {
             guard let current = AXSupport.selectedTextRange(of: binding.element) else {
+                if allowUndoPasteFallback {
+                    return writeEditorViaUndoPaste(text, to: binding, replacing: nil)
+                }
                 return .failed("编辑器模式无法读取当前选区，已拒绝写入以保护文档")
             }
             range = current
         }
 
         guard AXSupport.setSelectedTextRange(binding.element, range: range) else {
+            if allowUndoPasteFallback {
+                return writeEditorViaUndoPaste(text, to: binding, replacing: state)
+            }
             return .failed("编辑器模式无法设置本轮输入选区，已拒绝写入以保护文档")
         }
         Thread.sleep(forTimeInterval: 0.04)
@@ -116,6 +144,35 @@ enum TextWriter {
                                             length: utf16Length(text),
                                             text: text)
             return .applied(method: appliedMethod, state: next)
+        case .failed(let message):
+            return .failed(message)
+        }
+    }
+
+    /// CodeMirror/Obsidian 等编辑器通常不暴露 AX 选区范围。回退策略只撤销上一轮
+    /// VibeCast 粘贴，再粘贴本轮文本，仍然避免 Cmd+A 全文替换。
+    private static func writeEditorViaUndoPaste(_ text: String, to binding: TargetBinding,
+                                                replacing state: EditorInsertionState?) -> EditorWriteResult {
+        if let state, state.text == text {
+            return .applied(method: "editor_undo_paste_unchanged",
+                            state: .undoPaste(text: text))
+        }
+
+        if state != nil {
+            guard KeyboardSynth.press(KeyShortcut(modifiers: ["command"], key: "z")) else {
+                return .failed("无法撤销上一轮编辑器输入")
+            }
+            Thread.sleep(forTimeInterval: 0.08)
+        }
+
+        guard !text.isEmpty else {
+            return .applied(method: "editor_undo_clear", state: nil)
+        }
+
+        let method = state == nil ? "editor_undo_paste_insert" : "editor_undo_paste_replace"
+        switch pasteText(text, to: binding, method: method) {
+        case .applied(let appliedMethod):
+            return .applied(method: appliedMethod, state: .undoPaste(text: text))
         case .failed(let message):
             return .failed(message)
         }

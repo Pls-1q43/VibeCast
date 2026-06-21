@@ -17,7 +17,7 @@ enum KeyboardSynth {
         "forwarddelete": CGKeyCode(kVK_ForwardDelete),
         "a": CGKeyCode(kVK_ANSI_A), "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
         "n": CGKeyCode(kVK_ANSI_N), "j": CGKeyCode(kVK_ANSI_J), "i": CGKeyCode(kVK_ANSI_I),
-        "v": CGKeyCode(kVK_ANSI_V),
+        "v": CGKeyCode(kVK_ANSI_V), "z": CGKeyCode(kVK_ANSI_Z),
     ]
 
     private static func flags(for modifiers: [String]) -> CGEventFlags {
