@@ -20,7 +20,8 @@ export type ErrorCode =
   | "WRITE_FAILED"
   | "SEND_FAILED"
   | "SEND_UNKNOWN"
-  | "RATE_LIMITED";
+  | "RATE_LIMITED"
+  | "INACTIVE_SESSION";
 
 export type TargetStatus =
   | "focusing"

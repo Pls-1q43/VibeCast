@@ -86,7 +86,7 @@ final class SessionManager: ServerDelegate {
                 return
             }
             if SessionManager.requiresActiveController(type), !ensureActive(conn) {
-                sendError(conn, code: .rateLimited, message: "非活动会话，暂不可操作")
+                sendError(conn, code: .inactiveSession, message: "非活动输入会话，请重新选择目标")
                 return
             }
         }
@@ -202,13 +202,16 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         paired[conn.id] = conn
         rateLimiters[conn.id] = MessageRateLimiter()
-        // 单一活动会话（PRD 12.2）：最新完成握手的连接接管控制权。
+        // 单一活动输入会话（PRD 12.2）：最新手机输入页接管控制权。
         // 单用户场景下，用户最后打开/重连的页面即其想操作的会话；
-        // 旧连接（可能是残留/已切后台的标签页）让出控制，避免新页面被 RATE_LIMITED 卡死。
-        let previousActive = activeControllerId
-        activeControllerId = conn.id
-        // 接管控制权 → 旧绑定失效，等新会话重新选目标。
-        if previousActive != conn.id { activeBinding = nil }
+        // 配置页不接管输入控制权，否则会让手机端同步被误判为非活动会话。
+        let isConfigPage = hello.deviceName == "Config Page"
+        if !isConfigPage {
+            let previousActive = activeControllerId
+            activeControllerId = conn.id
+            // 接管控制权 → 旧绑定失效，等新会话重新选目标。
+            if previousActive != conn.id { activeBinding = nil }
+        }
         let count = paired.count
         lock.unlock()
 
@@ -686,12 +689,7 @@ final class SessionManager: ServerDelegate {
 
     static func requiresActiveController(_ type: String) -> Bool {
         switch type {
-        case "hello", "ping", "get_status":
-            return false
-        case "select_target", "text_snapshot", "clear", "send",
-             "get_config", "set_config", "test_target", "list_running_apps",
-             "open_accessibility_settings", "create_target", "delete_target",
-             "set_target_enabled":
+        case "select_target", "text_snapshot", "clear", "send":
             return true
         default:
             return false

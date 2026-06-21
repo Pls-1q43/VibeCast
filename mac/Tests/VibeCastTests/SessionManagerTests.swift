@@ -7,23 +7,23 @@ final class SessionManagerTests: XCTestCase {
         XCTAssertFalse(SessionManager.requiresActiveController("hello"))
         XCTAssertFalse(SessionManager.requiresActiveController("ping"))
         XCTAssertFalse(SessionManager.requiresActiveController("get_status"))
+        XCTAssertFalse(SessionManager.requiresActiveController("get_config"))
+        XCTAssertFalse(SessionManager.requiresActiveController("set_config"))
+        XCTAssertFalse(SessionManager.requiresActiveController("test_target"))
+        XCTAssertFalse(SessionManager.requiresActiveController("list_running_apps"))
+        XCTAssertFalse(SessionManager.requiresActiveController("open_accessibility_settings"))
+        XCTAssertFalse(SessionManager.requiresActiveController("create_target"))
+        XCTAssertFalse(SessionManager.requiresActiveController("delete_target"))
+        XCTAssertFalse(SessionManager.requiresActiveController("set_target_enabled"))
         XCTAssertFalse(SessionManager.requiresActiveController("unknown_future_message"))
     }
 
-    func testControlAndConfigMessagesRequireActiveController() {
+    func testInputControlMessagesRequireActiveController() {
         let activeOnly = [
             "select_target",
             "text_snapshot",
             "clear",
-            "send",
-            "get_config",
-            "set_config",
-            "test_target",
-            "list_running_apps",
-            "open_accessibility_settings",
-            "create_target",
-            "delete_target",
-            "set_target_enabled"
+            "send"
         ]
 
         for type in activeOnly {

@@ -18,7 +18,8 @@
 错误码（`errorCode`）枚举：
 `UNPAIRED` · `BAD_TOKEN` · `BAD_MESSAGE` · `UNKNOWN_TARGET` · `APP_NOT_RUNNING` ·
 `APP_LAUNCH_FAILED` · `TARGET_NOT_FOCUSED` · `NO_ACCESSIBILITY_PERMISSION` ·
-`STALE_REVISION` · `WRITE_FAILED` · `SEND_FAILED` · `SEND_UNKNOWN` · `RATE_LIMITED`
+`STALE_REVISION` · `WRITE_FAILED` · `SEND_FAILED` · `SEND_UNKNOWN` · `RATE_LIMITED` ·
+`INACTIVE_SESSION`
 
 ---
 
@@ -185,6 +186,7 @@ Mac 规则（顺序）：
 0.1 发布版约束：
 - 除 `hello` 外，未完成配对的 WebSocket 消息必须返回 `UNPAIRED`。
 - 新配对页面接管控制权后，旧活动绑定失效。
+- 配置页连接不接管输入控制权；只有 `select_target`、`text_snapshot`、`clear`、`send` 需要活动输入会话。
 - 令牌重新生成后，已配对连接必须断开，旧页面需重新使用新地址。
 - 超大文本帧或过大 JSON 消息会被拒绝或关闭连接。
 

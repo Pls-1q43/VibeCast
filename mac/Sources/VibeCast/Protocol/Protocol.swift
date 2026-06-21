@@ -65,6 +65,7 @@ enum ErrorCode: String, Codable, Sendable {
     case sendFailed = "SEND_FAILED"
     case sendUnknown = "SEND_UNKNOWN"
     case rateLimited = "RATE_LIMITED"
+    case inactiveSession = "INACTIVE_SESSION"
 }
 
 enum TargetStatus: String, Codable, Sendable {
