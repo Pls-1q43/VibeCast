@@ -22,6 +22,16 @@ VibeCast 把手机变成 Mac 上的高效输入面板：手机负责用你熟悉
 
 它的体验很直接：拿起手机说话，在 Mac 上写入；在手机上修改，在 Mac 上同步；确认后发送，让 Vibe Coding 的输入节奏跟上你的思路。
 
+## 界面截图
+
+| 手机端输入面板 | 目标 App 配置页 |
+|---|---|
+| <img src="marketing/x-launch/vibecast-mobile.png" alt="VibeCast 手机端输入面板" width="320" /> | <img src="marketing/x-launch/vibecast-config.png" alt="VibeCast 目标 App 配置页" width="520" /> |
+
+<p align="center">
+  <img src="marketing/x-launch/vibecast-notion-ai.png" alt="Notion AI 输入框中的 VibeCast 示例文字" width="760" />
+</p>
+
 ## 核心价值
 
 | 能力 | 体验 |
