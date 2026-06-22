@@ -39,6 +39,24 @@ enum KeyboardSynth {
         "rightopt": CGKeyCode(kVK_RightOption),
         "option_right": CGKeyCode(kVK_RightOption),
         "opt_right": CGKeyCode(kVK_RightOption),
+        "left_control": CGKeyCode(kVK_Control),
+        "leftcontrol": CGKeyCode(kVK_Control),
+        "left_ctrl": CGKeyCode(kVK_Control),
+        "leftctrl": CGKeyCode(kVK_Control),
+        "control_left": CGKeyCode(kVK_Control),
+        "ctrl_left": CGKeyCode(kVK_Control),
+        "right_control": CGKeyCode(kVK_RightControl),
+        "rightcontrol": CGKeyCode(kVK_RightControl),
+        "right_ctrl": CGKeyCode(kVK_RightControl),
+        "rightctrl": CGKeyCode(kVK_RightControl),
+        "control_right": CGKeyCode(kVK_RightControl),
+        "ctrl_right": CGKeyCode(kVK_RightControl),
+        "left_shift": CGKeyCode(kVK_Shift),
+        "leftshift": CGKeyCode(kVK_Shift),
+        "shift_left": CGKeyCode(kVK_Shift),
+        "right_shift": CGKeyCode(kVK_RightShift),
+        "rightshift": CGKeyCode(kVK_RightShift),
+        "shift_right": CGKeyCode(kVK_RightShift),
         "a": CGKeyCode(kVK_ANSI_A), "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
         "n": CGKeyCode(kVK_ANSI_N), "j": CGKeyCode(kVK_ANSI_J), "i": CGKeyCode(kVK_ANSI_I),
         "v": CGKeyCode(kVK_ANSI_V), "z": CGKeyCode(kVK_ANSI_Z),
@@ -58,6 +76,24 @@ enum KeyboardSynth {
         return f
     }
 
+    private static func implicitFlag(for key: String) -> CGEventFlags {
+        switch key.lowercased() {
+        case "left_command", "leftcommand", "left_cmd", "leftcmd", "command_left", "cmd_left",
+             "right_command", "rightcommand", "right_cmd", "rightcmd", "command_right", "cmd_right":
+            return .maskCommand
+        case "left_option", "leftoption", "left_opt", "leftopt", "option_left", "opt_left",
+             "right_option", "rightoption", "right_opt", "rightopt", "option_right", "opt_right":
+            return .maskAlternate
+        case "left_control", "leftcontrol", "left_ctrl", "leftctrl", "control_left", "ctrl_left",
+             "right_control", "rightcontrol", "right_ctrl", "rightctrl", "control_right", "ctrl_right":
+            return .maskControl
+        case "left_shift", "leftshift", "shift_left", "right_shift", "rightshift", "shift_right":
+            return .maskShift
+        default:
+            return []
+        }
+    }
+
     /// 向系统投递一个快捷键（键按下+抬起）。返回是否成功映射键码。
     @discardableResult
     static func press(_ shortcut: KeyShortcut) -> Bool {
@@ -69,9 +105,11 @@ enum KeyboardSynth {
               let up = CGEvent(keyboardEventSource: src, virtualKey: code, keyDown: false) else {
             return false
         }
-        down.flags = flags
+        let implicit = implicitFlag(for: shortcut.key)
+        down.flags = flags.union(implicit)
         up.flags = flags
         down.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.035)
         up.post(tap: .cghidEventTap)
         return true
     }
