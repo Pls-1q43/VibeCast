@@ -82,7 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         log(MacI18n.t("configServiceStartFailed"))
     }
 
-    private func startPhoneServer() {
+    private func startPhoneServer(retryOnFailure: Bool = false, attempt: Int = 0) {
         guard let staticServer = StaticFileServer() else {
             log(MacI18n.t("missingResources"))
             return
@@ -97,6 +97,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             log(MacI18n.f("serviceStarted", bindHost ?? "*", Int(settings.port)))
         } catch {
             log(MacI18n.f("serviceStartFailed", String(describing: error)))
+            if retryOnFailure && attempt < 5 {
+                let delay = 0.25 + Double(attempt) * 0.25
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    self?.startPhoneServer(retryOnFailure: true, attempt: attempt + 1)
+                }
+            }
         }
         rebuildMenu()
     }
@@ -106,7 +112,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         phoneServer?.stop()
         phoneServer = nil
         pairedCount = 0
-        startPhoneServer()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+            self?.startPhoneServer(retryOnFailure: true)
+        }
     }
 
     private func restartAllServers() {

@@ -361,14 +361,15 @@ function renderNetworkSettings(): HTMLElement {
   port.step = "1";
 
   const status = el("div", "cfg-port-status");
-  status.dataset.portStatus = "";
+  status.setAttribute("data-port-status", "");
+  status.dataset.tone = "neutral";
+  status.textContent = i18n.t("cfg.portUnknown");
   controls.append(
     wrapField(i18n.t("cfg.bindAddress"), bind, i18n.t("cfg.bindAddressHint")),
     wrapField(i18n.t("cfg.port"), port, i18n.t("cfg.portHint")),
-    status,
   );
 
-  const actions = el("div", "cfg-row__actions");
+  const actions = el("div", "cfg-network__actions");
   const check = button(i18n.t("cfg.checkPort"), "btn btn--ghost", () => {
     sendPortCheck();
     setStatus(i18n.t("cfg.checkingPort"));
@@ -385,7 +386,7 @@ function renderNetworkSettings(): HTMLElement {
     send({ type: "set_network_settings", settings: next });
     setStatus(i18n.t("cfg.savingNetwork"));
   });
-  actions.append(check, save);
+  actions.append(status, check, save);
   section.append(title, hint, controls, actions);
   window.setTimeout(updatePortStatus, 0);
   return section;

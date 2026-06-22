@@ -74,6 +74,7 @@
   background: var(--bg);
   display: flex;
   align-items: center;
+  min-width: min(100%, 260px);
 }
 
 .cfg-port-status[data-tone="ok"] {
@@ -98,7 +99,8 @@
 }
 
 .cfg-hero__actions,
-.cfg-row__actions {
+.cfg-row__actions,
+.cfg-network__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -187,6 +189,12 @@
 .cfg-advanced__grid {
   display: grid;
   gap: 10px;
+}
+
+.cfg-network__actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
 }
 
 .cfg-list {
@@ -362,8 +370,13 @@
   }
 
   .cfg-network__grid {
-    grid-template-columns: minmax(0, 1.4fr) minmax(140px, 0.6fr) minmax(220px, 1fr);
-    align-items: end;
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 360px);
+    align-items: start;
+  }
+
+  .cfg-network__actions {
+    grid-template-columns: minmax(260px, 1fr) minmax(140px, auto) minmax(260px, 0.9fr);
+    align-items: center;
   }
 
   .cfg-row {
