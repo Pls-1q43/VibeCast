@@ -9,6 +9,8 @@ protocol SessionManagerDelegate: AnyObject {
     func sessionDidLog(_ line: String)
     /// 配置被更新（菜单栏可刷新目标显示名等）。
     func sessionConfigChanged()
+    /// 手机端网络入口配置被更新（用于重启手机端服务）。
+    func sessionNetworkSettingsChanged(_ settings: NetworkSettings)
 }
 
 extension SessionManagerDelegate {

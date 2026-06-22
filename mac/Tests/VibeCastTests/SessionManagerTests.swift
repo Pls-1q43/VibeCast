@@ -3,6 +3,17 @@ import XCTest
 
 final class SessionManagerTests: XCTestCase {
 
+    private final class DelegateSpy: SessionManagerDelegate {
+        var networkSettingsChanged: NetworkSettings?
+
+        func sessionPairedCountChanged(_ count: Int) {}
+        func sessionDidLog(_ line: String) {}
+
+        func sessionNetworkSettingsChanged(_ settings: NetworkSettings) {
+            networkSettingsChanged = settings
+        }
+    }
+
     func testReadOnlyStatusMessagesDoNotRequireActiveController() {
         XCTAssertFalse(SessionManager.requiresActiveController("hello"))
         XCTAssertFalse(SessionManager.requiresActiveController("ping"))
@@ -32,5 +43,17 @@ final class SessionManagerTests: XCTestCase {
         for type in activeOnly {
             XCTAssertTrue(SessionManager.requiresActiveController(type), "\(type) should require the active controller")
         }
+    }
+
+    func testNetworkSettingsChangedDispatchesThroughDelegateProtocol() {
+        let spy = DelegateSpy()
+        let delegate: SessionManagerDelegate = spy
+        let settings = NetworkSettings(bindMode: .address, bindAddress: "192.168.1.23", port: 8790)
+
+        delegate.sessionNetworkSettingsChanged(settings)
+
+        XCTAssertEqual(spy.networkSettingsChanged?.bindMode, .address)
+        XCTAssertEqual(spy.networkSettingsChanged?.bindAddress, "192.168.1.23")
+        XCTAssertEqual(spy.networkSettingsChanged?.port, 8790)
     }
 }
