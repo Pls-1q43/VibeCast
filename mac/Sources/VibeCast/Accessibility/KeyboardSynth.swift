@@ -15,6 +15,11 @@ enum KeyboardSynth {
         "escape": CGKeyCode(kVK_Escape),
         "delete": CGKeyCode(kVK_Delete),        // 退格删除（删除选中内容）
         "forwarddelete": CGKeyCode(kVK_ForwardDelete),
+        "left_option": CGKeyCode(kVK_Option),
+        "leftoption": CGKeyCode(kVK_Option),
+        "right_option": CGKeyCode(kVK_RightOption),
+        "rightoption": CGKeyCode(kVK_RightOption),
+        "option_right": CGKeyCode(kVK_RightOption),
         "a": CGKeyCode(kVK_ANSI_A), "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
         "n": CGKeyCode(kVK_ANSI_N), "j": CGKeyCode(kVK_ANSI_J), "i": CGKeyCode(kVK_ANSI_I),
         "v": CGKeyCode(kVK_ANSI_V), "z": CGKeyCode(kVK_ANSI_Z),

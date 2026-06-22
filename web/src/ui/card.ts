@@ -11,6 +11,8 @@ export interface CardCallbacks {
   onSend: (targetId: TargetId) => void;
   onClear: (targetId: TargetId) => void;
   onRefocus: (targetId: TargetId) => void;
+  onVoiceHoldStart: (targetId: TargetId) => void;
+  onVoiceHoldEnd: (targetId: TargetId, reason: "release" | "cancel") => void;
 }
 
 export class Card {
@@ -24,6 +26,9 @@ export class Card {
   private status: SyncStatus = "disconnected";
   private allowEmpty = false;
   private syncMode: "mirror" | "editor" = "mirror";
+  private voiceTimer: number | null = null;
+  private voicePointerId: number | null = null;
+  private voiceActive = false;
 
   constructor(targetId: TargetId, displayName: string, iconDataUrl: string | null | undefined, private i18n: I18n, cb: CardCallbacks) {
     this.targetId = targetId;
@@ -58,6 +63,13 @@ export class Card {
     this.textarea.addEventListener("input", () => {
       this.syncTextareaHeight();
       cb.onInput(targetId);
+    });
+    this.textarea.addEventListener("pointerdown", (event) => this.onPointerDown(event, cb));
+    this.textarea.addEventListener("pointerup", () => this.finishVoiceHold(cb, "release"));
+    this.textarea.addEventListener("pointercancel", () => this.finishVoiceHold(cb, "cancel"));
+    this.textarea.addEventListener("pointerleave", () => this.finishVoiceHold(cb, "cancel"));
+    this.textarea.addEventListener("contextmenu", (event) => {
+      if (this.voiceActive || this.voiceTimer !== null) event.preventDefault();
     });
 
     // 操作区
@@ -151,7 +163,45 @@ export class Card {
 
   private syncTextareaHeight(): void {
     this.textarea.style.height = "auto";
-    this.textarea.style.height = `${this.textarea.scrollHeight}px`;
+    const minHeight = this.text.trim().length > 0 || document.activeElement === this.textarea ? this.textarea.scrollHeight : 46;
+    this.textarea.style.height = `${minHeight}px`;
+  }
+
+  private onPointerDown(event: PointerEvent, cb: CardCallbacks): void {
+    if (event.button !== 0 || this.status === "disconnected" || this.status === "reconnecting") return;
+    this.clearVoiceTimer();
+    this.voicePointerId = event.pointerId;
+    this.textarea.setPointerCapture?.(event.pointerId);
+    this.voiceTimer = window.setTimeout(() => {
+      this.voiceTimer = null;
+      this.voiceActive = true;
+      this.root.classList.add("card--voice-active");
+      this.textarea.blur();
+      cb.onVoiceHoldStart(this.targetId);
+    }, 450);
+  }
+
+  private finishVoiceHold(cb: CardCallbacks, reason: "release" | "cancel"): void {
+    this.clearVoiceTimer();
+    if (this.voicePointerId !== null) {
+      try {
+        this.textarea.releasePointerCapture?.(this.voicePointerId);
+      } catch {
+        /* pointer capture may already be gone */
+      }
+      this.voicePointerId = null;
+    }
+    if (!this.voiceActive) return;
+    this.voiceActive = false;
+    this.root.classList.remove("card--voice-active");
+    cb.onVoiceHoldEnd(this.targetId, reason);
+  }
+
+  private clearVoiceTimer(): void {
+    if (this.voiceTimer !== null) {
+      clearTimeout(this.voiceTimer);
+      this.voiceTimer = null;
+    }
   }
 }
 

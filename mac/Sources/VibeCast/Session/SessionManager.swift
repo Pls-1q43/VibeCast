@@ -1,6 +1,7 @@
 // 会话与协议分发：hello 握手、令牌校验、单一活动控制端、目标绑定、
 // revision 门控、发送幂等和发布版安全护栏。
 
+import CoreAudio
 import Foundation
 
 protocol SessionManagerDelegate: AnyObject {
@@ -44,12 +45,30 @@ final class SessionManager: ServerDelegate {
     private var rateLimiters: [UUID: MessageRateLimiter] = [:]
     /// editor 同步模式下，每个会话只替换本轮由 VibeCast 插入的文本段。
     private var editorStates: [EditorSessionKey: EditorInsertionState] = [:]
+    /// 语音传递实验：跟踪手机端音频分片、虚拟麦克风输出和启动/停止热键。
+    private var voiceStates: [VoiceSessionKey: VoiceRelayState] = [:]
     private let lock = NSLock()
     private let maxMessageBytes = 128 * 1024
 
     private struct EditorSessionKey: Hashable {
         let sessionId: String
         let targetId: TargetId
+    }
+
+    private struct VoiceSessionKey: Hashable {
+        let connectionId: UUID
+        let sessionId: String
+        let targetId: TargetId
+    }
+
+    private struct VoiceRelayState {
+        var receivedBytes: Int = 0
+        var chunks: Int = 0
+        var startedAt = Date()
+        var hotkeyPressed = false
+        var previousInputDevice: AudioDeviceID?
+        var relay: VoiceAudioRelay?
+        var deviceName: String?
     }
 
     init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore(),
@@ -113,6 +132,16 @@ final class SessionManager: ServerDelegate {
             handleClear(conn, data: data)
         case "send":
             handleSend(conn, data: data)
+        case "voice_start":
+            handleVoiceStart(conn, data: data)
+        case "voice_chunk":
+            handleVoiceChunk(conn, data: data)
+        case "voice_stop":
+            handleVoiceStop(conn, data: data)
+        case "get_voice_environment":
+            handleGetVoiceEnvironment(conn)
+        case "install_virtual_mic":
+            handleInstallVirtualMic(conn)
         case "get_config":
             handleGetConfig(conn)
         case "set_config":
@@ -146,6 +175,8 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         paired.removeValue(forKey: conn.id)
         rateLimiters.removeValue(forKey: conn.id)
+        let closingVoiceStates = voiceStates.filter { $0.key.connectionId == conn.id }.map(\.value)
+        voiceStates = voiceStates.filter { $0.key.connectionId != conn.id }
         if activeControllerId == conn.id {
             activeControllerId = nil
             activeBinding = nil
@@ -153,6 +184,7 @@ final class SessionManager: ServerDelegate {
         }
         let count = paired.count
         lock.unlock()
+        for state in closingVoiceStates { stopVoiceState(state) }
         delegate?.sessionPairedCountChanged(count)
         delegate?.sessionDidLog("ws close \(conn.id.uuidString.prefix(8))")
     }
@@ -169,7 +201,10 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         activeBinding = nil
         editorStates.removeAll()
+        let oldVoiceStates = Array(voiceStates.values)
+        voiceStates.removeAll()
         lock.unlock()
+        for state in oldVoiceStates { stopVoiceState(state) }
         delegate?.sessionDidLog("system will sleep: 清空目标绑定")
     }
 
@@ -187,8 +222,11 @@ final class SessionManager: ServerDelegate {
         activeControllerId = nil
         activeBinding = nil
         editorStates.removeAll()
+        let oldVoiceStates = Array(voiceStates.values)
+        voiceStates.removeAll()
         let count = paired.count
         lock.unlock()
+        for state in oldVoiceStates { stopVoiceState(state) }
         for conn in conns { conn.close() }
         delegate?.sessionPairedCountChanged(count)
         delegate?.sessionDidLog("pairings revoked")
@@ -328,6 +366,161 @@ final class SessionManager: ServerDelegate {
         }
         applyText(conn, sessionId: msg.sessionId, targetId: msg.targetId,
                   revision: msg.revision, text: "")
+    }
+
+    /// 语音传递实验：手机长按后请求 Mac 聚焦目标，并触发目标 Profile 中的语音输入快捷键。
+    private func handleVoiceStart(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(VoiceStartMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "voice_start 结构错误")
+            return
+        }
+        guard config.isUsable(msg.targetId) else {
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "目标未启用或尚未配置 Bundle ID",
+                                         receivedBytes: nil))
+            return
+        }
+        guard AccessibilityPermission.isGranted else {
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "Mac 缺少辅助功能权限",
+                                         receivedBytes: nil))
+            return
+        }
+        guard msg.codec == "pcm_s16le", msg.sampleRate > 0, (1...2).contains(msg.channels) else {
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "语音格式不支持",
+                                         receivedBytes: nil))
+            return
+        }
+        guard let device = VoiceAudioDeviceManager.preferredVoiceDevice() else {
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "未检测到 VibeCast Virtual Mic 或 BlackHole 2ch",
+                                         receivedBytes: nil))
+            return
+        }
+        let previousInput = VoiceAudioDeviceManager.defaultInputDevice()
+        guard VoiceAudioDeviceManager.setDefaultInputDevice(device.id) else {
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "无法切换 macOS 默认输入设备",
+                                         receivedBytes: nil))
+            return
+        }
+        let relay = VoiceAudioRelay()
+        guard relay.start(deviceUID: device.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
+            if let previousInput { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInput) }
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "无法向虚拟麦克风输出音频",
+                                         receivedBytes: nil))
+            return
+        }
+
+        let key = VoiceSessionKey(connectionId: conn.id, sessionId: msg.sessionId, targetId: msg.targetId)
+        lock.lock()
+        voiceStates[key] = VoiceRelayState(previousInputDevice: previousInput, relay: relay, deviceName: device.name)
+        lock.unlock()
+
+        send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                       status: .focusing, errorCode: nil, message: nil))
+
+        let profile = config.profile(msg.targetId)
+        focusQueue.async { [weak self, weak conn] in
+            guard let self, let conn else { return }
+            let outcome = FocusController.focus(targetId: msg.targetId, sessionId: msg.sessionId, profile: profile)
+            switch outcome {
+            case .focused(let binding):
+                self.lock.lock()
+                self.activeBinding = binding
+                if var state = self.voiceStates[key] {
+                    state.hotkeyPressed = KeyboardSynth.press(profile.voiceShortcut)
+                    self.voiceStates[key] = state
+                }
+                self.lock.unlock()
+
+                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(device.name) key=\(profile.voiceShortcut.key)")
+                self.send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                                    status: .focused, errorCode: nil, message: nil))
+                let started = self.voiceStates[key]?.hotkeyPressed == true
+                self.send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                                  state: started ? "started" : "error",
+                                                  message: started ? nil : "语音输入快捷键无法映射",
+                                                  receivedBytes: nil))
+            case .appNotRunning:
+                self.finishVoiceStartError(conn, key: key, sessionId: msg.sessionId, targetId: msg.targetId,
+                                           code: .appNotRunning, message: "应用未运行")
+            case .appLaunchFailed(let message):
+                self.finishVoiceStartError(conn, key: key, sessionId: msg.sessionId, targetId: msg.targetId,
+                                           code: .appLaunchFailed, message: message)
+            case .noPermission:
+                self.finishVoiceStartError(conn, key: key, sessionId: msg.sessionId, targetId: msg.targetId,
+                                           code: .noAccessibilityPermission, message: "Mac 缺少辅助功能权限")
+            case .notFocused(let message):
+                self.finishVoiceStartError(conn, key: key, sessionId: msg.sessionId, targetId: msg.targetId,
+                                           code: .targetNotFocused, message: message)
+            }
+        }
+    }
+
+    private func finishVoiceStartError(_ conn: Connection, key: VoiceSessionKey, sessionId: String,
+                                       targetId: TargetId, code: ErrorCode, message: String) {
+        lock.lock()
+        let state = voiceStates.removeValue(forKey: key)
+        lock.unlock()
+        if let state { stopVoiceState(state) }
+        send(conn, TargetStatusMessage(sessionId: sessionId, targetId: targetId,
+                                       status: code == .appNotRunning || code == .appLaunchFailed ? .appNotRunning : .notFocused,
+                                       errorCode: code, message: message))
+        send(conn, VoiceStateMessage(sessionId: sessionId, targetId: targetId,
+                                     state: "error", message: message, receivedBytes: nil))
+    }
+
+    /// 接收手机端实时 PCM 分片并写入当前虚拟麦克风输出队列。
+    private func handleVoiceChunk(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(VoiceChunkMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "voice_chunk 结构错误")
+            return
+        }
+        guard msg.audioBase64.count <= 96_000, let audio = Data(base64Encoded: msg.audioBase64) else {
+            sendError(conn, code: .badMessage, message: "voice_chunk 音频分片无效")
+            return
+        }
+        let key = VoiceSessionKey(connectionId: conn.id, sessionId: msg.sessionId, targetId: msg.targetId)
+        lock.lock()
+        if var state = voiceStates[key] {
+            state.receivedBytes += audio.count
+            state.chunks += 1
+            state.relay?.enqueue(audio)
+            voiceStates[key] = state
+        }
+        lock.unlock()
+    }
+
+    private func handleVoiceStop(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(VoiceStopMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "voice_stop 结构错误")
+            return
+        }
+        let key = VoiceSessionKey(connectionId: conn.id, sessionId: msg.sessionId, targetId: msg.targetId)
+        let profile = config.profile(msg.targetId)
+        lock.lock()
+        let state = voiceStates.removeValue(forKey: key)
+        lock.unlock()
+
+        if state?.hotkeyPressed == true {
+            _ = KeyboardSynth.press(profile.voiceShortcut)
+        }
+        if let state { stopVoiceState(state) }
+        let bytes = state?.receivedBytes ?? 0
+        let chunks = state?.chunks ?? 0
+        delegate?.sessionDidLog("voice_stop \(msg.targetId.rawValue) chunks=\(chunks) bytes=\(bytes) reason=\(msg.reason ?? "release")")
+        send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                     state: "stopped", message: nil, receivedBytes: bytes))
+    }
+
+    private func stopVoiceState(_ state: VoiceRelayState) {
+        state.relay?.stop()
+        if let previous = state.previousInputDevice {
+            _ = VoiceAudioDeviceManager.setDefaultInputDevice(previous)
+        }
     }
 
     /// 核心写入流程：Revision 校验 → 绑定校验 → TextWriter 写入 → text_ack。
@@ -641,6 +834,16 @@ final class SessionManager: ServerDelegate {
         }
         let settings = NetworkSettings(bindMode: msg.bindMode, bindAddress: msg.bindAddress, port: msg.port)
         send(conn, PortCheckMessage(result: portStatus(for: settings)))
+    }
+
+    private func handleGetVoiceEnvironment(_ conn: Connection) {
+        send(conn, VoiceAudioDeviceManager.voiceEnvironment())
+    }
+
+    private func handleInstallVirtualMic(_ conn: Connection) {
+        let result = VoiceAudioDeviceManager.installVirtualMic()
+        delegate?.sessionDidLog("voice_environment installed=\(result.installed) device=\(result.deviceName ?? "<none>")")
+        send(conn, result)
     }
 
     private func handleOpenAccessibilitySettings() {

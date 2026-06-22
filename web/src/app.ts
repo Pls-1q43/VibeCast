@@ -9,6 +9,15 @@ import { Card } from "./ui/card.ts";
 import type { SyncStatus } from "./ui/status.ts";
 import { LANGUAGES, createI18n, setLang, type I18n, type Lang } from "./i18n.ts";
 import { applyTheme, readTheme, writeTheme, type AppTheme } from "./ui/theme.ts";
+import { VoiceRecorder, type VoiceRecorderChunk } from "./voice/voiceRecorder.ts";
+
+interface ActiveVoiceSession {
+  targetId: TargetId;
+  sessionId: string;
+  recorder: VoiceRecorder;
+  ready: boolean;
+  pendingChunks: VoiceRecorderChunk[];
+}
 
 export class App {
   private store = new DraftStore();
@@ -26,6 +35,7 @@ export class App {
   private targetOptions = new Map<TargetId, { clearAfterSend: boolean; allowEmpty: boolean; syncMode: "mirror" | "editor" }>();
   private targetNames = new Map<TargetId, string>();
   private pendingSends = new Map<TargetId, { sessionId: string; revision: number }>();
+  private activeVoice: ActiveVoiceSession | null = null;
 
   private connbar!: HTMLElement;
   private cardList!: HTMLElement;
@@ -211,6 +221,8 @@ export class App {
       onSend: (t) => this.onSend(t),
       onClear: (t) => this.onClear(t),
       onRefocus: (t) => this.refocus(t),
+      onVoiceHoldStart: (t) => void this.onVoiceHoldStart(t),
+      onVoiceHoldEnd: (t, reason) => this.onVoiceHoldEnd(t, reason),
     });
     this.cards.set(id, card);
     this.cardList.append(card.element);
@@ -340,6 +352,89 @@ export class App {
     }
   }
 
+  // ---- 语音传递（实验）----
+
+  private async onVoiceHoldStart(targetId: TargetId): Promise<void> {
+    if (this.connState !== "connected" || this.activeVoice) return;
+    const card = this.cards.get(targetId);
+    if (!card) return;
+
+    const sessionId = uuid();
+    this.activeTarget = targetId;
+    this.sessions.set(targetId, sessionId);
+    for (const [id, c] of this.cards) c.setSelected(id === targetId);
+    card.setStatus("voice_starting");
+    this.updateConnbar();
+
+    const recorder = new VoiceRecorder({
+      onChunk: (chunk) => this.onVoiceChunk(chunk),
+      onError: (message) => this.failVoice(targetId, message),
+    });
+    this.activeVoice = { targetId, sessionId, recorder, ready: false, pendingChunks: [] };
+
+    try {
+      const sampleRate = await recorder.start();
+      this.ws.send({
+        type: "voice_start",
+        sessionId,
+        targetId,
+        sampleRate,
+        channels: 1,
+        codec: "pcm_s16le",
+        clientTimestamp: Date.now(),
+      });
+    } catch {
+      this.stopVoice("error");
+    }
+  }
+
+  private onVoiceHoldEnd(targetId: TargetId, reason: "release" | "cancel"): void {
+    if (this.activeVoice?.targetId !== targetId) return;
+    this.stopVoice(reason);
+  }
+
+  private onVoiceChunk(chunk: VoiceRecorderChunk): void {
+    const voice = this.activeVoice;
+    if (!voice) return;
+    if (!voice.ready) {
+      voice.pendingChunks.push(chunk);
+      if (voice.pendingChunks.length > 32) voice.pendingChunks.shift();
+      return;
+    }
+    this.sendVoiceChunk(voice, chunk);
+  }
+
+  private sendVoiceChunk(voice: ActiveVoiceSession, chunk: VoiceRecorderChunk): void {
+    this.ws.send({
+      type: "voice_chunk",
+      sessionId: voice.sessionId,
+      targetId: voice.targetId,
+      sequence: chunk.sequence,
+      audioBase64: chunk.audioBase64,
+      clientTimestamp: Date.now(),
+    });
+  }
+
+  private stopVoice(reason: "release" | "cancel" | "error" | "disconnect"): void {
+    const voice = this.activeVoice;
+    if (!voice) return;
+    voice.recorder.stop();
+    this.ws.send({
+      type: "voice_stop",
+      sessionId: voice.sessionId,
+      targetId: voice.targetId,
+      reason,
+      clientTimestamp: Date.now(),
+    });
+    this.cards.get(voice.targetId)?.setStatus(reason === "release" ? "synced" : "focused");
+    this.activeVoice = null;
+  }
+
+  private failVoice(targetId: TargetId, message: string): void {
+    this.cards.get(targetId)?.setStatus("sync_failed", message);
+    this.stopVoice("error");
+  }
+
   // ---- 连接事件 ----
 
   private onWsOpen(): void {
@@ -350,6 +445,7 @@ export class App {
     this.connState = state;
     this.updateConnbar();
     if (state === "disconnected") {
+      this.stopVoice("disconnect");
       // 断线：所有卡片标记未连接/等待重连，禁用发送（PRD 16.4）。
       for (const card of this.cards.values()) card.setStatus("reconnecting");
     }
@@ -375,9 +471,27 @@ export class App {
         const focused = msg.status === "focused";
         this.targetFocused.set(msg.targetId, focused);
         card.setStatus(this.mapTargetStatus(msg.status));
-        if (focused && this.activeTarget === msg.targetId) {
+        if (focused && this.activeTarget === msg.targetId && this.activeVoice?.targetId !== msg.targetId) {
           // 聚焦成功后补发当前完整快照。
           this.imeControllers.get(msg.targetId)?.flushNow();
+        }
+        break;
+      }
+      case "voice_state": {
+        const card = this.cards.get(msg.targetId);
+        if (!card) break;
+        if (msg.state === "started" && this.activeVoice?.sessionId === msg.sessionId) {
+          this.activeVoice.ready = true;
+          card.setStatus("voice_recording");
+          for (const chunk of this.activeVoice.pendingChunks.splice(0)) {
+            this.sendVoiceChunk(this.activeVoice, chunk);
+          }
+        } else if (msg.state === "stopped") {
+          card.setStatus("synced");
+        } else if (msg.state === "error") {
+          card.setStatus("sync_failed", msg.message ?? null);
+          this.activeVoice?.recorder.stop();
+          this.activeVoice = null;
         }
         break;
       }

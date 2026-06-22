@@ -74,16 +74,46 @@ final class TargetProfileTests: XCTestCase {
         p.bundleId = "com.example.codex"
         p.focusShortcut = KeyShortcut(modifiers: ["command"], key: "l")
         p.syncMode = .editor
+        p.voiceShortcut = KeyShortcut(modifiers: ["control"], key: "space")
         let data = try JSONEncoder().encode(p)
         let back = try JSONDecoder().decode(TargetProfile.self, from: data)
         XCTAssertEqual(back.bundleId, "com.example.codex")
         XCTAssertEqual(back.focusShortcut, KeyShortcut(modifiers: ["command"], key: "l"))
         XCTAssertEqual(back.syncMode, .editor)
+        XCTAssertEqual(back.voiceShortcut, KeyShortcut(modifiers: ["control"], key: "space"))
     }
 
     func testKeyShortcutEnterConstant() {
         XCTAssertEqual(KeyShortcut.enter.key, "enter")
         XCTAssertTrue(KeyShortcut.enter.modifiers.isEmpty)
+    }
+
+    func testVoiceShortcutDefaultsToRightOption() throws {
+        XCTAssertEqual(TargetProfile.defaultFor(.codex).voiceShortcut, .rightOption)
+
+        let json = """
+        {
+          "displayName": "Codex",
+          "bundleId": "com.openai.codex",
+          "activationMode": "bundle_id",
+          "launchIfNotRunning": false,
+          "focusMode": "shortcut",
+          "focusShortcut": null,
+          "focusWaitMs": 300,
+          "sendMode": "key",
+          "sendShortcut": { "modifiers": [], "key": "enter" },
+          "sendButtonTitleContains": null,
+          "clearAfterSend": true,
+          "allowEmpty": false,
+          "keepForeground": false,
+          "maxTextLength": 10000,
+          "allowSelectAllReplace": true,
+          "writeMode": "auto",
+          "syncMode": "mirror"
+        }
+        """.data(using: .utf8)!
+        let decoded = try JSONDecoder().decode(TargetProfile.self, from: json)
+        XCTAssertEqual(decoded.voiceShortcut, .rightOption)
     }
 
     func testNormalizeClampsRiskyValuesAndMigratesLegacyClipboardPaste() {

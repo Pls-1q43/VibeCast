@@ -73,6 +73,33 @@ export interface ClearMessage {
   revision: number;
 }
 
+export interface VoiceStartMessage {
+  type: "voice_start";
+  sessionId: string;
+  targetId: TargetId;
+  sampleRate: number;
+  channels: number;
+  codec: "pcm_s16le";
+  clientTimestamp?: number;
+}
+
+export interface VoiceChunkMessage {
+  type: "voice_chunk";
+  sessionId: string;
+  targetId: TargetId;
+  sequence: number;
+  audioBase64: string;
+  clientTimestamp?: number;
+}
+
+export interface VoiceStopMessage {
+  type: "voice_stop";
+  sessionId: string;
+  targetId: TargetId;
+  reason?: "release" | "cancel" | "error" | "disconnect";
+  clientTimestamp?: number;
+}
+
 export interface PingMessage {
   type: "ping";
   t: number;
@@ -84,6 +111,9 @@ export type ClientMessage =
   | TextSnapshotMessage
   | SendMessage
   | ClearMessage
+  | VoiceStartMessage
+  | VoiceChunkMessage
+  | VoiceStopMessage
   | PingMessage
   | GetConfigMessage
   | SetConfigMessage
@@ -93,6 +123,8 @@ export type ClientMessage =
   | GetNetworkSettingsMessage
   | SetNetworkSettingsMessage
   | CheckPortMessage
+  | GetVoiceEnvironmentMessage
+  | InstallVirtualMicMessage
   | OpenAccessibilitySettingsMessage
   | CreateTargetMessage
   | DeleteTargetMessage
@@ -148,6 +180,15 @@ export interface SendResultMessage {
   message?: string;
 }
 
+export interface VoiceStateMessage {
+  type: "voice_state";
+  sessionId: string;
+  targetId: TargetId;
+  state: "starting" | "started" | "stopped" | "error";
+  message?: string | null;
+  receivedBytes?: number | null;
+}
+
 export interface ErrorMessage {
   type: "error";
   errorCode: ErrorCode;
@@ -180,6 +221,7 @@ export interface TargetProfile {
   allowSelectAllReplace: boolean;
   writeMode?: "auto" | "axvalue" | "clipboard_replace" | "clipboard_insert" | "clipboard_paste";
   syncMode?: "mirror" | "editor";
+  voiceShortcut?: { modifiers: string[]; key: string };
 }
 
 export interface ConfigTarget {
@@ -225,6 +267,12 @@ export interface CheckPortMessage {
   bindMode: NetworkBindMode;
   bindAddress?: string | null;
   port: number;
+}
+export interface GetVoiceEnvironmentMessage {
+  type: "get_voice_environment";
+}
+export interface InstallVirtualMicMessage {
+  type: "install_virtual_mic";
 }
 export interface OpenAccessibilitySettingsMessage {
   type: "open_accessibility_settings";
@@ -299,12 +347,21 @@ export interface PortCheckMessage {
   type: "port_check";
   result: PortCheckResult;
 }
+export interface VoiceEnvironmentMessage {
+  type: "voice_environment";
+  installed: boolean;
+  deviceName?: string | null;
+  defaultInputMatches: boolean;
+  canAutoSwitch: boolean;
+  message?: string | null;
+}
 
 export type ServerMessage =
   | HelloAckMessage
   | TargetStatusMessage
   | TextAckMessage
   | SendResultMessage
+  | VoiceStateMessage
   | ErrorMessage
   | PongMessage
   | ConfigMessage
@@ -313,7 +370,8 @@ export type ServerMessage =
   | ServerStatusMessage
   | NetworkSettingsMessage
   | NetworkInterfacesMessage
-  | PortCheckMessage;
+  | PortCheckMessage
+  | VoiceEnvironmentMessage;
 
 export function isServerMessage(v: unknown): v is ServerMessage {
   return typeof v === "object" && v !== null && typeof (v as { type?: unknown }).type === "string";

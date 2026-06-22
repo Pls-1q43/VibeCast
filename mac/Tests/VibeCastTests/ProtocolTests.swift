@@ -78,4 +78,30 @@ final class ProtocolTests: XCTestCase {
         XCTAssertFalse(msg.success)
         XCTAssertEqual(msg.errorCode, .targetNotFocused)
     }
+
+    func testVoiceStartDecode() throws {
+        let json = """
+        {"type":"voice_start","sessionId":"v1","targetId":"codex","sampleRate":48000,
+         "channels":1,"codec":"pcm_s16le","clientTimestamp":1781760000000}
+        """.data(using: .utf8)!
+        XCTAssertEqual(try ProtocolCodec.messageType(of: json), "voice_start")
+        let msg = try ProtocolCodec.decoder.decode(VoiceStartMessage.self, from: json)
+        XCTAssertEqual(msg.sessionId, "v1")
+        XCTAssertEqual(msg.targetId, .codex)
+        XCTAssertEqual(msg.sampleRate, 48000)
+        XCTAssertEqual(msg.channels, 1)
+        XCTAssertEqual(msg.codec, "pcm_s16le")
+    }
+
+    func testVoiceEnvironmentEncode() throws {
+        let env = VoiceEnvironmentMessage(installed: true, deviceName: "BlackHole 2ch",
+                                          defaultInputMatches: false, canAutoSwitch: true,
+                                          message: nil)
+        let data = try ProtocolCodec.encode(env)
+        let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(obj["type"] as? String, "voice_environment")
+        XCTAssertEqual(obj["installed"] as? Bool, true)
+        XCTAssertEqual(obj["deviceName"] as? String, "BlackHole 2ch")
+        XCTAssertEqual(obj["canAutoSwitch"] as? Bool, true)
+    }
 }

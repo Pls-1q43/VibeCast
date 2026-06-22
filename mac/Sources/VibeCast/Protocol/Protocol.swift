@@ -119,6 +119,33 @@ struct ClearMessage: Codable, Sendable {
     let revision: Int
 }
 
+struct VoiceStartMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let sampleRate: Int
+    let channels: Int
+    let codec: String
+    let clientTimestamp: Int64?
+}
+
+struct VoiceChunkMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let sequence: Int
+    let audioBase64: String
+    let clientTimestamp: Int64?
+}
+
+struct VoiceStopMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let reason: String?
+    let clientTimestamp: Int64?
+}
+
 struct PingMessage: Codable, Sendable {
     let type: String
     let t: Int64
@@ -138,6 +165,14 @@ struct CheckPortMessage: Codable, Sendable {
     let bindMode: NetworkBindMode
     let bindAddress: String?
     let port: UInt16
+}
+
+struct GetVoiceEnvironmentMessage: Codable, Sendable {
+    let type: String
+}
+
+struct InstallVirtualMicMessage: Codable, Sendable {
+    let type: String
 }
 
 // 配置相关（手机配置页 → Mac）
@@ -244,6 +279,24 @@ struct SendResultMessage: Codable, Sendable {
     let revision: Int
     let success: Bool
     let errorCode: ErrorCode?
+    let message: String?
+}
+
+struct VoiceStateMessage: Codable, Sendable {
+    var type = "voice_state"
+    let sessionId: String
+    let targetId: TargetId
+    let state: String
+    let message: String?
+    let receivedBytes: Int?
+}
+
+struct VoiceEnvironmentMessage: Codable, Sendable {
+    var type = "voice_environment"
+    let installed: Bool
+    let deviceName: String?
+    let defaultInputMatches: Bool
+    let canAutoSwitch: Bool
     let message: String?
 }
 

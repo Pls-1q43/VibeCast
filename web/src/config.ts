@@ -11,6 +11,7 @@ import {
   type ServerMessage,
   type TargetId,
   type TargetProfile,
+  type VoiceEnvironmentMessage,
   isServerMessage,
 } from "./ws/protocol.ts";
 import { getClientId } from "./store/draftStore.ts";
@@ -47,6 +48,7 @@ let connected = false;
 let networkDraft: NetworkSettings | null = null;
 let networkInterfaces: NetworkInterfaceInfo[] = [];
 let portStatus: PortCheckResult | null = null;
+let voiceEnvironment: VoiceEnvironmentMessage | null = null;
 let awaitingNetworkSave = false;
 let reconnectTimer: number | null = null;
 let statusTimer: number | null = null;
@@ -98,6 +100,7 @@ function handle(m: ServerMessage) {
       send({ type: "list_running_apps" });
       send({ type: "get_status" });
       send({ type: "get_network_settings" });
+      send({ type: "get_voice_environment" });
       startStatusPolling();
       render();
       break;
@@ -136,6 +139,10 @@ function handle(m: ServerMessage) {
       portStatus = m.result;
       updatePortStatus();
       break;
+    case "voice_environment":
+      voiceEnvironment = m;
+      render();
+      break;
     case "test_result": {
       const text = m.success
         ? i18n.t("cfg.testOk", { message: "" })
@@ -167,7 +174,7 @@ function send(msg: object) {
 function render() {
   document.title = i18n.t("cfg.pageTitle");
   mount.innerHTML = "";
-  mount.append(renderHeader(), renderOnboarding(), renderNetworkSettings(), renderAddTarget(), renderTargetList());
+  mount.append(renderHeader(), renderOnboarding(), renderNetworkSettings(), renderVoiceEnvironment(), renderAddTarget(), renderTargetList());
 }
 
 function renderHeader(): HTMLElement {
@@ -392,6 +399,43 @@ function renderNetworkSettings(): HTMLElement {
   return section;
 }
 
+function renderVoiceEnvironment(): HTMLElement {
+  const section = el("section", "cfg-network");
+  const title = document.createElement("h2");
+  title.textContent = i18n.t("cfg.voiceTitle");
+  const hint = document.createElement("p");
+  hint.className = "cfg-hint";
+  hint.textContent = i18n.t("cfg.voiceHint");
+
+  const status = el("div", voiceEnvironment?.installed ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+  status.textContent = voiceEnvironment?.installed
+    ? i18n.t("cfg.voiceInstalled", { name: voiceEnvironment.deviceName ?? "Virtual Mic" })
+    : i18n.t("cfg.voiceMissing");
+
+  const detail = document.createElement("p");
+  detail.className = "cfg-hint";
+  detail.textContent = voiceEnvironment
+    ? [
+        voiceEnvironment.defaultInputMatches ? i18n.t("cfg.voiceDefaultInputOk") : i18n.t("cfg.voiceDefaultInputWillSwitch"),
+        voiceEnvironment.message ?? "",
+      ].filter(Boolean).join(" · ")
+    : i18n.t("cfg.loading");
+
+  const actions = el("div", "cfg-row__actions");
+  actions.append(
+    button(i18n.t("cfg.refreshVoice"), "btn btn--ghost", () => {
+      send({ type: "get_voice_environment" });
+      setStatus(i18n.t("cfg.refreshingVoice"));
+    }),
+    button(i18n.t("cfg.installVoice"), voiceEnvironment?.installed ? "btn btn--ghost" : "btn btn--primary", () => {
+      send({ type: "install_virtual_mic" });
+      setStatus(i18n.t("cfg.installingVoice"));
+    }),
+  );
+  section.append(title, hint, status, detail, actions);
+  return section;
+}
+
 function renderTargetList(): HTMLElement {
   const section = el("section", "cfg-list");
   const header = el("div", "cfg-list__header");
@@ -551,6 +595,14 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
   sendShortcutMods.addEventListener("input", () => {
     p.sendShortcut = { modifiers: splitList(sendShortcutMods.value), key: p.sendShortcut?.key ?? "enter" };
   });
+  const voiceShortcutKey = input(p.voiceShortcut?.key ?? "right_option", "right_option");
+  voiceShortcutKey.addEventListener("input", () => {
+    p.voiceShortcut = { modifiers: p.voiceShortcut?.modifiers ?? [], key: voiceShortcutKey.value || "right_option" };
+  });
+  const voiceShortcutMods = input((p.voiceShortcut?.modifiers ?? []).join(","), "command, option, control, shift");
+  voiceShortcutMods.addEventListener("input", () => {
+    p.voiceShortcut = { modifiers: splitList(voiceShortcutMods.value), key: p.voiceShortcut?.key ?? "right_option" };
+  });
 
   const grid = el("div", "cfg-advanced__grid");
   grid.append(
@@ -600,6 +652,8 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
     ], (v) => (p.sendMode = v as TargetProfile["sendMode"]))),
     wrapField(i18n.t("cfg.sendShortcutKey"), sendShortcutKey),
     wrapField(i18n.t("cfg.sendShortcutMods"), sendShortcutMods),
+    wrapField(i18n.t("cfg.voiceShortcutKey"), voiceShortcutKey, i18n.t("cfg.voiceShortcutHint")),
+    wrapField(i18n.t("cfg.voiceShortcutMods"), voiceShortcutMods),
     wrapField(i18n.t("cfg.sendButtonContains"), inputWithChange(p.sendButtonTitleContains ?? "", (v) => (p.sendButtonTitleContains = v || null))),
     wrapField(i18n.t("cfg.clearAfterSend"), checkbox(p.clearAfterSend, (v) => (p.clearAfterSend = v))),
     wrapField(i18n.t("cfg.allowEmpty"), checkbox(p.allowEmpty, (v) => (p.allowEmpty = v))),

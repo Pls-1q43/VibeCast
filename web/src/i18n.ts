@@ -78,6 +78,8 @@ export type SyncStatus =
   | "syncing"
   | "synced"
   | "composing"
+  | "voice_starting"
+  | "voice_recording"
   | "target_lost"
   | "app_not_running"
   | "sync_failed"
@@ -89,7 +91,7 @@ export type SyncStatus =
 type Dict = Record<string, string>;
 
 const zh: Dict = {
-  "app.hint": "点击某个应用的文本框后，在输入法中点击语音按钮开始说话。识别出的文字会实时镜像到 Mac 对应应用。",
+  "app.hint": "轻点输入框发送文字；按住输入框把手机麦克风传到 Mac，并唤起远端语音输入法。",
   "app.empty": "还没有可用目标。请先在 Mac 菜单栏打开配置页面，启用 App 并绑定 Bundle ID。",
   "app.clearConfirm": "确认清空当前草稿？",
   "app.connected": "已连接 · {name}",
@@ -103,7 +105,7 @@ const zh: Dict = {
   "app.themeEink": "E-Ink",
   "app.title": "VibeCast",
   "card.aria": "{name} 输入卡片",
-  "card.placeholder": "点击此处，使用输入法语音按钮说话",
+  "card.placeholder": "发送文字消息或按住语音输入",
   "card.send": "发送",
   "card.done": "完成",
   "card.sending": "发送中…",
@@ -117,6 +119,8 @@ const zh: Dict = {
   "status.syncing": "正在同步",
   "status.synced": "已同步",
   "status.composing": "输入法编辑中",
+  "status.voice_starting": "正在启动语音",
+  "status.voice_recording": "正在语音输入",
   "status.target_lost": "目标失焦",
   "status.app_not_running": "Mac 应用未运行",
   "status.sync_failed": "同步失败",
@@ -169,6 +173,16 @@ const zh: Dict = {
   "cfg.saveNetwork": "保存并重启服务",
   "cfg.savingNetwork": "正在保存网络设置，服务将重启…",
   "cfg.networkSaved": "网络设置已保存，手机端入口已按新配置重启",
+  "cfg.voiceTitle": "语音输入环境",
+  "cfg.voiceHint": "语音传递会临时把 macOS 默认输入切到 VibeCast 虚拟麦克风，并在松手后恢复。",
+  "cfg.voiceInstalled": "已检测到 {name}",
+  "cfg.voiceMissing": "未检测到虚拟麦克风",
+  "cfg.voiceDefaultInputOk": "当前默认输入已匹配",
+  "cfg.voiceDefaultInputWillSwitch": "长按时会自动切换默认输入",
+  "cfg.refreshVoice": "重新检测",
+  "cfg.refreshingVoice": "正在检测语音输入环境…",
+  "cfg.installVoice": "安装/检测虚拟麦克风",
+  "cfg.installingVoice": "正在准备虚拟麦克风环境…",
   "cfg.addCustom": "添加自定义 App",
   "cfg.customApp": "自定义 App",
   "cfg.appName": "App 名称",
@@ -231,6 +245,9 @@ const zh: Dict = {
   "cfg.syncOnly": "仅同步不发送",
   "cfg.sendShortcutKey": "发送快捷键 key",
   "cfg.sendShortcutMods": "发送快捷键修饰键",
+  "cfg.voiceShortcutKey": "语音输入快捷键 key",
+  "cfg.voiceShortcutMods": "语音输入修饰键",
+  "cfg.voiceShortcutHint": "默认 right_option。长按语音开始/结束时会按一次该键。",
   "cfg.sendButtonContains": "发送按钮标题包含",
   "cfg.clearAfterSend": "发送后清空",
   "cfg.allowEmpty": "允许空文本",
@@ -262,7 +279,7 @@ const zh: Dict = {
 };
 
 const en: Dict = {
-  "app.hint": "Tap a target text box, then use your keyboard's voice button. Recognized text mirrors to the matching Mac app in real time.",
+  "app.hint": "Tap the input to send text, or press and hold it to stream your phone mic to the Mac voice input.",
   "app.empty": "No targets are available yet. Open the Mac menu bar configuration page, enable apps, and bind Bundle IDs.",
   "app.clearConfirm": "Clear the current draft?",
   "app.connected": "Connected · {name}",
@@ -275,7 +292,7 @@ const en: Dict = {
   "app.themeAuto": "Auto",
   "app.themeEink": "E-Ink",
   "card.aria": "{name} input card",
-  "card.placeholder": "Tap here, then use your keyboard voice button",
+  "card.placeholder": "Send a text message or hold to speak",
   "card.send": "Send",
   "card.done": "Done",
   "card.sending": "Sending…",
@@ -289,6 +306,8 @@ const en: Dict = {
   "status.syncing": "Syncing",
   "status.synced": "Synced",
   "status.composing": "Composing",
+  "status.voice_starting": "Starting voice",
+  "status.voice_recording": "Voice input active",
   "status.target_lost": "Target lost focus",
   "status.app_not_running": "Mac app is not running",
   "status.sync_failed": "Sync failed",
@@ -341,6 +360,16 @@ const en: Dict = {
   "cfg.saveNetwork": "Save and Restart Service",
   "cfg.savingNetwork": "Saving network settings; service will restart…",
   "cfg.networkSaved": "Network settings saved; the phone entry point restarted with the new settings",
+  "cfg.voiceTitle": "Voice Input Environment",
+  "cfg.voiceHint": "Voice relay temporarily switches the macOS default input to the VibeCast virtual microphone, then restores it when you release.",
+  "cfg.voiceInstalled": "Detected {name}",
+  "cfg.voiceMissing": "Virtual microphone not detected",
+  "cfg.voiceDefaultInputOk": "Default input already matches",
+  "cfg.voiceDefaultInputWillSwitch": "Default input will switch while holding",
+  "cfg.refreshVoice": "Check Again",
+  "cfg.refreshingVoice": "Checking voice input environment…",
+  "cfg.installVoice": "Install / Check Virtual Mic",
+  "cfg.installingVoice": "Preparing virtual microphone environment…",
   "cfg.addCustom": "Add Custom App",
   "cfg.customApp": "Custom App",
   "cfg.appName": "App name",
@@ -403,6 +432,9 @@ const en: Dict = {
   "cfg.syncOnly": "Sync only",
   "cfg.sendShortcutKey": "Send shortcut key",
   "cfg.sendShortcutMods": "Send shortcut modifiers",
+  "cfg.voiceShortcutKey": "Voice input shortcut key",
+  "cfg.voiceShortcutMods": "Voice input modifiers",
+  "cfg.voiceShortcutHint": "Default is right_option. VibeCast presses it when voice starts and stops.",
   "cfg.sendButtonContains": "Send button title contains",
   "cfg.clearAfterSend": "Clear after send",
   "cfg.allowEmpty": "Allow empty text",

@@ -179,7 +179,99 @@ Mac 规则（顺序）：
 
 ---
 
-## 7. 安全校验（Mac 端对每条消息）
+## 7. 语音传递
+
+语音传递不是一个配置页中的全局模式，而是一次按住输入框触发的临时会话：
+1. 手机端长按目标卡片输入框，发送 `select_target` 并开始采集麦克风 PCM。
+2. Mac 切换到目标应用，把默认输入设备临时切到虚拟麦克风，按目标 Profile 的 `voiceShortcut` 唤起系统语音输入法。
+3. 手机持续发送音频块；Mac 把音频写入虚拟麦克风对应的输出设备。
+4. 手机松手或取消时发送 `voice_stop`；Mac 再按一次 `voiceShortcut` 停止听写，并恢复之前的默认输入设备。
+
+### → voice_start
+```json
+{
+  "type": "voice_start",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "sampleRate": 48000,
+  "channels": 1,
+  "codec": "pcm_s16le",
+  "clientTimestamp": 1781760000000
+}
+```
+
+当前实验版只接受 `codec="pcm_s16le"`，`sampleRate > 0`，`channels` 为 `1` 或 `2`。
+
+### → voice_chunk
+```json
+{
+  "type": "voice_chunk",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "sequence": 12,
+  "audioBase64": "...",
+  "clientTimestamp": 1781760000123
+}
+```
+
+`audioBase64` 是 PCM S16LE 原始字节的 Base64。手机端应等待 `voice_state{state:"started"}` 后发送或刷新缓存的音频块。
+
+### → voice_stop
+```json
+{
+  "type": "voice_stop",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "reason": "release",
+  "clientTimestamp": 1781760002500
+}
+```
+
+`reason` 可为 `release`、`cancel`、`error`、`disconnect`。
+
+### ← voice_state
+```json
+{
+  "type": "voice_state",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "state": "started",
+  "message": "语音传递已开始",
+  "receivedBytes": 0
+}
+```
+
+`state` 为 `started`、`stopped` 或 `error`。`receivedBytes` 可省略，停止时用于诊断 Mac 已接收的音频量。
+
+### → get_voice_environment / install_virtual_mic
+```json
+{ "type": "get_voice_environment" }
+{ "type": "install_virtual_mic" }
+```
+
+### ← voice_environment
+```json
+{
+  "type": "voice_environment",
+  "installed": true,
+  "deviceName": "BlackHole 2ch",
+  "defaultInputMatches": false,
+  "canAutoSwitch": true,
+  "message": null
+}
+```
+
+当前实验版会优先寻找 `VibeCast Virtual Mic`，其次兼容 `BlackHole 2ch`。`install_virtual_mic` 在无内置驱动包时只返回环境诊断，不会静默安装第三方驱动。
+
+`TargetProfile.voiceShortcut`：
+```json
+{ "voiceShortcut": { "modifiers": [], "key": "right_option" } }
+```
+默认值为右 Option；配置页可按目标应用调整。
+
+---
+
+## 8. 安全校验（Mac 端对每条消息）
 
 必须校验：配对令牌、消息结构合法、targetId 合法、sessionId 与当前绑定一致、revision 单调、text 长度上限（默认 ≤ 10000，可配置）、消息频率（超限回 `RATE_LIMITED`）。
 
@@ -192,7 +284,7 @@ Mac 规则（顺序）：
 
 ---
 
-## 8. 配置页消息
+## 9. 配置页消息
 
 ### → get_config
 ```json

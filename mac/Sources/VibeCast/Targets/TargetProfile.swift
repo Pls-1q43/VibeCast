@@ -48,6 +48,7 @@ struct KeyShortcut: Codable, Equatable {
     var key: String          // "enter" | "a" | "k" ...
 
     static let enter = KeyShortcut(modifiers: [], key: "enter")
+    static let rightOption = KeyShortcut(modifiers: [], key: "right_option")
 }
 
 struct TargetProfile: Codable {
@@ -74,25 +75,29 @@ struct TargetProfile: Codable {
     var writeMode: WriteMode
     /// 同步语义。复杂编辑器用 editor，避免全量镜像清空整页文档。
     var syncMode: SyncMode
+    /// 语音传递模式启动/停止时触发的远端语音输入快捷键。
+    var voiceShortcut: KeyShortcut
 
-    // 向后兼容：旧配置文件无 writeMode/syncMode 时默认 .auto/.mirror。
+    // 向后兼容：旧配置文件无 writeMode/syncMode/voiceShortcut 时补默认值。
     enum CodingKeys: String, CodingKey {
         case displayName, bundleId, iconDataUrl, activationMode, launchIfNotRunning, focusMode, focusShortcut
         case focusWaitMs, sendMode, sendShortcut, sendButtonTitleContains, clearAfterSend
-        case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode, syncMode
+        case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode, syncMode, voiceShortcut
     }
 
     init(displayName: String, bundleId: String, activationMode: ActivationMode, launchIfNotRunning: Bool,
          focusMode: FocusMode, focusShortcut: KeyShortcut?, focusWaitMs: Int, sendMode: SendMode,
          sendShortcut: KeyShortcut?, sendButtonTitleContains: String?, clearAfterSend: Bool,
          allowEmpty: Bool, keepForeground: Bool, maxTextLength: Int, allowSelectAllReplace: Bool,
-         writeMode: WriteMode, syncMode: SyncMode = .mirror, iconDataUrl: String? = nil) {
+         writeMode: WriteMode, syncMode: SyncMode = .mirror, voiceShortcut: KeyShortcut = .rightOption,
+         iconDataUrl: String? = nil) {
         self.displayName = displayName; self.bundleId = bundleId; self.iconDataUrl = iconDataUrl; self.activationMode = activationMode
         self.launchIfNotRunning = launchIfNotRunning; self.focusMode = focusMode; self.focusShortcut = focusShortcut
         self.focusWaitMs = focusWaitMs; self.sendMode = sendMode; self.sendShortcut = sendShortcut
         self.sendButtonTitleContains = sendButtonTitleContains; self.clearAfterSend = clearAfterSend
         self.allowEmpty = allowEmpty; self.keepForeground = keepForeground; self.maxTextLength = maxTextLength
         self.allowSelectAllReplace = allowSelectAllReplace; self.writeMode = writeMode; self.syncMode = syncMode
+        self.voiceShortcut = voiceShortcut
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +120,7 @@ struct TargetProfile: Codable {
         allowSelectAllReplace = try c.decode(Bool.self, forKey: .allowSelectAllReplace)
         writeMode = try c.decodeIfPresent(WriteMode.self, forKey: .writeMode) ?? .auto
         syncMode = try c.decodeIfPresent(SyncMode.self, forKey: .syncMode) ?? .mirror
+        voiceShortcut = try c.decodeIfPresent(KeyShortcut.self, forKey: .voiceShortcut) ?? .rightOption
     }
 
     static func defaultFor(_ id: TargetId) -> TargetProfile {
@@ -418,6 +424,9 @@ extension TargetProfile {
         }
         if targetId == .notion && p.syncMode == .mirror && p.writeMode == .clipboardReplace {
             p.allowSelectAllReplace = true
+        }
+        if p.voiceShortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            p.voiceShortcut = .rightOption
         }
         return p
     }

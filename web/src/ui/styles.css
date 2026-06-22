@@ -274,22 +274,30 @@ textarea {
 
 .card__textarea {
   width: 100%;
-  min-height: 96px;
+  min-height: 46px;
   overflow: hidden;
   resize: none;
   font-size: 16px; /* ≥16px 避免 iOS/部分安卓自动缩放 */
   line-height: 1.5;
-  padding: 10px;
+  padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
   color: var(--text);
   font-family: inherit;
+  touch-action: manipulation;
+  transition: min-height 0.15s, border-color 0.15s, background 0.15s;
 }
 
 .card__textarea:focus {
+  min-height: 96px;
   outline: 2px solid var(--primary);
   outline-offset: 1px;
+}
+
+.card--voice-active .card__textarea {
+  border-color: var(--active);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg));
 }
 
 .card__actions {
