@@ -124,6 +124,22 @@ struct PingMessage: Codable, Sendable {
     let t: Int64
 }
 
+struct GetNetworkSettingsMessage: Codable, Sendable {
+    let type: String
+}
+
+struct SetNetworkSettingsMessage: Codable, Sendable {
+    let type: String
+    let settings: NetworkSettings
+}
+
+struct CheckPortMessage: Codable, Sendable {
+    let type: String
+    let bindMode: NetworkBindMode
+    let bindAddress: String?
+    let port: UInt16
+}
+
 // 配置相关（手机配置页 → Mac）
 struct GetConfigMessage: Codable, Sendable {
     let type: String
@@ -283,6 +299,58 @@ struct ServerStatusMessage: Codable, Sendable {
     var type = "server_status"
     let serverName: String
     let accessibilityGranted: Bool
+}
+
+struct NetworkInterfaceInfo: Codable, Sendable, Equatable {
+    let id: String
+    let name: String
+    let address: String
+    let isPreferred: Bool
+}
+
+enum NetworkBindMode: String, Codable, Sendable {
+    case address
+    case all
+}
+
+struct NetworkSettings: Codable, Sendable, Equatable {
+    var bindMode: NetworkBindMode
+    var bindAddress: String?
+    var port: UInt16
+
+    static let defaultPort: UInt16 = 8787
+}
+
+enum PortAvailabilityStatus: String, Codable, Sendable {
+    case available
+    case unavailable
+    case invalid
+}
+
+struct PortCheckResult: Codable, Sendable, Equatable {
+    let bindMode: NetworkBindMode
+    let bindAddress: String?
+    let port: UInt16
+    let status: PortAvailabilityStatus
+    let message: String?
+}
+
+struct NetworkSettingsMessage: Codable, Sendable {
+    var type = "network_settings"
+    let settings: NetworkSettings
+    let interfaces: [NetworkInterfaceInfo]
+    let portStatus: PortCheckResult
+    let accessUrl: String?
+}
+
+struct NetworkInterfacesMessage: Codable, Sendable {
+    var type = "network_interfaces"
+    let interfaces: [NetworkInterfaceInfo]
+}
+
+struct PortCheckMessage: Codable, Sendable {
+    var type = "port_check"
+    let result: PortCheckResult
 }
 
 // MARK: - 解码分发

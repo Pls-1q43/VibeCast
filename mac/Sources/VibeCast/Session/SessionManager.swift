@@ -13,6 +13,7 @@ protocol SessionManagerDelegate: AnyObject {
 
 extension SessionManagerDelegate {
     func sessionConfigChanged() {}
+    func sessionNetworkSettingsChanged(_ settings: NetworkSettings) {}
 }
 
 final class SessionManager: ServerDelegate {
@@ -23,6 +24,7 @@ final class SessionManager: ServerDelegate {
     var accessibilityGranted: Bool
 
     private let config: TargetConfigStore
+    private let networkSettings: NetworkSettingsStore
     /// 聚焦/激活在后台串行队列执行（含同步等待，勿阻塞主线程/服务队列）。
     private let focusQueue = DispatchQueue(label: "vibecast.focus")
 
@@ -48,10 +50,12 @@ final class SessionManager: ServerDelegate {
         let targetId: TargetId
     }
 
-    init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore()) {
+    init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore(),
+         networkSettings: NetworkSettingsStore = NetworkSettingsStore()) {
         self.serverName = serverName
         self.accessibilityGranted = accessibilityGranted
         self.config = config
+        self.networkSettings = networkSettings
     }
 
     // MARK: - ServerDelegate
@@ -117,6 +121,12 @@ final class SessionManager: ServerDelegate {
             handleListRunningApps(conn)
         case "get_status":
             handleGetStatus(conn)
+        case "get_network_settings":
+            handleGetNetworkSettings(conn)
+        case "set_network_settings":
+            handleSetNetworkSettings(conn, data: data)
+        case "check_port":
+            handleCheckPort(conn, data: data)
         case "open_accessibility_settings":
             handleOpenAccessibilitySettings()
         case "create_target":
@@ -607,6 +617,30 @@ final class SessionManager: ServerDelegate {
                                        accessibilityGranted: AccessibilityPermission.isGranted))
     }
 
+    private func handleGetNetworkSettings(_ conn: Connection) {
+        sendNetworkSettings(conn)
+    }
+
+    private func handleSetNetworkSettings(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(SetNetworkSettingsMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "set_network_settings 结构错误")
+            return
+        }
+        let next = networkSettings.update(msg.settings)
+        sendNetworkSettings(conn)
+        delegate?.sessionDidLog("network_settings bind=\(next.bindMode.rawValue) host=\(next.bindAddress ?? "*") port=\(next.port)")
+        delegate?.sessionNetworkSettingsChanged(next)
+    }
+
+    private func handleCheckPort(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(CheckPortMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "check_port 结构错误")
+            return
+        }
+        let settings = NetworkSettings(bindMode: msg.bindMode, bindAddress: msg.bindAddress, port: msg.port)
+        send(conn, PortCheckMessage(result: portStatus(for: settings)))
+    }
+
     private func handleOpenAccessibilitySettings() {
         DispatchQueue.main.async {
             AccessibilityPermission.openSettings()
@@ -658,6 +692,37 @@ final class SessionManager: ServerDelegate {
     private func send<T: Encodable>(_ conn: Connection, _ msg: T) {
         guard let data = try? ProtocolCodec.encode(msg), let s = String(data: data, encoding: .utf8) else { return }
         conn.sendText(s)
+    }
+
+    private func sendNetworkSettings(_ conn: Connection) {
+        let settings = networkSettings.normalizedForCurrentInterfaces()
+        let interfaces = NetworkInfo.localInterfaces()
+        send(conn, NetworkSettingsMessage(settings: settings,
+                                          interfaces: interfaces,
+                                          portStatus: portStatus(for: settings),
+                                          accessUrl: accessURL(for: settings)))
+    }
+
+    private func portStatus(for settings: NetworkSettings) -> PortCheckResult {
+        let normalized = NetworkSettingsStore.normalized(settings)
+        let current = networkSettings.normalizedForCurrentInterfaces()
+        if normalized == current {
+            return PortCheckResult(bindMode: normalized.bindMode, bindAddress: normalized.bindAddress,
+                                   port: normalized.port, status: .available, message: "当前服务正在使用")
+        }
+        return PortAvailability.check(settings: normalized)
+    }
+
+    private func accessURL(for settings: NetworkSettings) -> String? {
+        let host: String?
+        switch settings.bindMode {
+        case .all:
+            host = NetworkInfo.primaryLANAddress()
+        case .address:
+            host = settings.bindAddress
+        }
+        guard let host, !host.isEmpty else { return nil }
+        return "http://\(host):\(settings.port)/?token=\(Pairing.token)"
     }
 
     private func profileWithResolvedIcon(_ profile: TargetProfile) -> TargetProfile {

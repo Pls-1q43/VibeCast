@@ -90,6 +90,9 @@ export type ClientMessage =
   | TestTargetMessage
   | ListRunningAppsMessage
   | GetStatusMessage
+  | GetNetworkSettingsMessage
+  | SetNetworkSettingsMessage
+  | CheckPortMessage
   | OpenAccessibilitySettingsMessage
   | CreateTargetMessage
   | DeleteTargetMessage
@@ -204,6 +207,25 @@ export interface ListRunningAppsMessage {
 export interface GetStatusMessage {
   type: "get_status";
 }
+export interface GetNetworkSettingsMessage {
+  type: "get_network_settings";
+}
+export type NetworkBindMode = "address" | "all";
+export interface NetworkSettings {
+  bindMode: NetworkBindMode;
+  bindAddress?: string | null;
+  port: number;
+}
+export interface SetNetworkSettingsMessage {
+  type: "set_network_settings";
+  settings: NetworkSettings;
+}
+export interface CheckPortMessage {
+  type: "check_port";
+  bindMode: NetworkBindMode;
+  bindAddress?: string | null;
+  port: number;
+}
 export interface OpenAccessibilitySettingsMessage {
   type: "open_accessibility_settings";
 }
@@ -248,6 +270,35 @@ export interface ServerStatusMessage {
   serverName: string;
   accessibilityGranted: boolean;
 }
+export interface NetworkInterfaceInfo {
+  id: string;
+  name: string;
+  address: string;
+  isPreferred: boolean;
+}
+export type PortAvailabilityStatus = "available" | "unavailable" | "invalid";
+export interface PortCheckResult {
+  bindMode: NetworkBindMode;
+  bindAddress?: string | null;
+  port: number;
+  status: PortAvailabilityStatus;
+  message?: string | null;
+}
+export interface NetworkSettingsMessage {
+  type: "network_settings";
+  settings: NetworkSettings;
+  interfaces: NetworkInterfaceInfo[];
+  portStatus: PortCheckResult;
+  accessUrl?: string | null;
+}
+export interface NetworkInterfacesMessage {
+  type: "network_interfaces";
+  interfaces: NetworkInterfaceInfo[];
+}
+export interface PortCheckMessage {
+  type: "port_check";
+  result: PortCheckResult;
+}
 
 export type ServerMessage =
   | HelloAckMessage
@@ -259,7 +310,10 @@ export type ServerMessage =
   | ConfigMessage
   | TestResultMessage
   | RunningAppsMessage
-  | ServerStatusMessage;
+  | ServerStatusMessage
+  | NetworkSettingsMessage
+  | NetworkInterfacesMessage
+  | PortCheckMessage;
 
 export function isServerMessage(v: unknown): v is ServerMessage {
   return typeof v === "object" && v !== null && typeof (v as { type?: unknown }).type === "string";

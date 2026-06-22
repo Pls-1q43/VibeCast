@@ -4,6 +4,9 @@ import "./ui/config.css";
 import {
   PROTOCOL_VERSION,
   type ConfigTarget,
+  type NetworkInterfaceInfo,
+  type NetworkSettings,
+  type PortCheckResult,
   type RunningApp,
   type ServerMessage,
   type TargetId,
@@ -41,8 +44,13 @@ let runningApps: RunningApp[] = [];
 let serverName = "Mac";
 let accessibilityGranted = false;
 let connected = false;
+let networkDraft: NetworkSettings | null = null;
+let networkInterfaces: NetworkInterfaceInfo[] = [];
+let portStatus: PortCheckResult | null = null;
+let awaitingNetworkSave = false;
 let reconnectTimer: number | null = null;
 let statusTimer: number | null = null;
+let portCheckTimer: number | null = null;
 let lastStatus = i18n.t("cfg.connecting");
 
 function connect() {
@@ -89,6 +97,7 @@ function handle(m: ServerMessage) {
       send({ type: "get_config" });
       send({ type: "list_running_apps" });
       send({ type: "get_status" });
+      send({ type: "get_network_settings" });
       startStatusPolling();
       render();
       break;
@@ -108,6 +117,24 @@ function handle(m: ServerMessage) {
     case "running_apps":
       runningApps = m.apps;
       render();
+      break;
+    case "network_settings":
+      networkDraft = { ...m.settings };
+      networkInterfaces = m.interfaces;
+      portStatus = m.portStatus;
+      render();
+      if (awaitingNetworkSave) {
+        awaitingNetworkSave = false;
+        redirectToNetworkUrl(m.accessUrl ?? null);
+      }
+      break;
+    case "network_interfaces":
+      networkInterfaces = m.interfaces;
+      render();
+      break;
+    case "port_check":
+      portStatus = m.result;
+      updatePortStatus();
       break;
     case "test_result": {
       const text = m.success
@@ -140,7 +167,7 @@ function send(msg: object) {
 function render() {
   document.title = i18n.t("cfg.pageTitle");
   mount.innerHTML = "";
-  mount.append(renderHeader(), renderOnboarding(), renderAddTarget(), renderTargetList());
+  mount.append(renderHeader(), renderOnboarding(), renderNetworkSettings(), renderAddTarget(), renderTargetList());
 }
 
 function renderHeader(): HTMLElement {
@@ -282,6 +309,85 @@ function renderAddTarget(): HTMLElement {
   });
   controls.append(iconPreview, wrapField(i18n.t("cfg.appName"), nameInput), wrapField("Bundle ID", bundleInput), wrapField(i18n.t("cfg.runningApp"), picker), iconPicker, addBtn);
   section.append(title, controls);
+  return section;
+}
+
+function renderNetworkSettings(): HTMLElement {
+  const section = el("section", "cfg-network");
+  const title = document.createElement("h2");
+  title.textContent = i18n.t("cfg.networkTitle");
+  const hint = document.createElement("p");
+  hint.className = "cfg-hint";
+  hint.textContent = i18n.t("cfg.networkHint");
+
+  if (!networkDraft) {
+    const empty = el("p", "cfg-empty");
+    empty.textContent = i18n.t("cfg.loading");
+    section.append(title, empty);
+    return section;
+  }
+
+  const controls = el("div", "cfg-network__grid");
+  const bindValue = networkDraft.bindMode === "all" ? "all" : (networkDraft.bindAddress ?? "");
+  const bindOptions: [string, string][] = [
+    ["all", i18n.t("cfg.bindAll")],
+    ...networkInterfaces.map((iface) => [
+      iface.address,
+      `${iface.address} · ${iface.name}${iface.isPreferred ? ` · ${i18n.t("cfg.preferred")}` : ""}`,
+    ] as [string, string]),
+  ];
+  if (networkDraft.bindMode === "address" && networkDraft.bindAddress && !bindOptions.some(([v]) => v === networkDraft?.bindAddress)) {
+    bindOptions.push([networkDraft.bindAddress, `${networkDraft.bindAddress} · ${i18n.t("cfg.unavailableInterface")}`]);
+  }
+  const bind = select(bindValue, bindOptions, (v) => {
+    if (!networkDraft) return;
+    if (v === "all") {
+      networkDraft.bindMode = "all";
+      networkDraft.bindAddress = null;
+    } else {
+      networkDraft.bindMode = "address";
+      networkDraft.bindAddress = v;
+    }
+    schedulePortCheck();
+  });
+
+  const port = numberInput(networkDraft.port, (v) => {
+    if (!networkDraft) return;
+    networkDraft.port = v;
+    schedulePortCheck();
+  });
+  port.min = "1";
+  port.max = "65535";
+  port.step = "1";
+
+  const status = el("div", "cfg-port-status");
+  status.dataset.portStatus = "";
+  controls.append(
+    wrapField(i18n.t("cfg.bindAddress"), bind, i18n.t("cfg.bindAddressHint")),
+    wrapField(i18n.t("cfg.port"), port, i18n.t("cfg.portHint")),
+    status,
+  );
+
+  const actions = el("div", "cfg-row__actions");
+  const check = button(i18n.t("cfg.checkPort"), "btn btn--ghost", () => {
+    sendPortCheck();
+    setStatus(i18n.t("cfg.checkingPort"));
+  });
+  const save = button(i18n.t("cfg.saveNetwork"), "btn btn--primary", () => {
+    if (!networkDraft) return;
+    const next = normalizeNetworkDraft(networkDraft);
+    if (next.bindMode === "all" && !window.confirm(i18n.t("cfg.bindAllConfirm"))) return;
+    if (portStatus && portStatus.status !== "available" && portStatus.port === next.port) {
+      setStatus(i18n.t("cfg.portUnavailable"));
+      return;
+    }
+    awaitingNetworkSave = true;
+    send({ type: "set_network_settings", settings: next });
+    setStatus(i18n.t("cfg.savingNetwork"));
+  });
+  actions.append(check, save);
+  section.append(title, hint, controls, actions);
+  window.setTimeout(updatePortStatus, 0);
   return section;
 }
 
@@ -685,6 +791,62 @@ function validateProfile(p: TargetProfile): string[] {
     issues.push(i18n.t("cfg.issueClipboard"));
   }
   return issues.length ? issues : [i18n.t("cfg.valid")];
+}
+
+function normalizeNetworkDraft(settings: NetworkSettings): NetworkSettings {
+  const port = Number.isFinite(settings.port) ? Math.max(1, Math.min(65535, Math.round(settings.port))) : 8787;
+  if (settings.bindMode === "all") return { bindMode: "all", bindAddress: null, port };
+  const fallback = networkInterfaces.find((iface) => iface.isPreferred)?.address ?? networkInterfaces[0]?.address ?? null;
+  return { bindMode: "address", bindAddress: settings.bindAddress || fallback, port };
+}
+
+function schedulePortCheck(): void {
+  if (portCheckTimer !== null) clearTimeout(portCheckTimer);
+  portCheckTimer = window.setTimeout(() => {
+    portCheckTimer = null;
+    sendPortCheck();
+  }, 250);
+}
+
+function sendPortCheck(): void {
+  if (!networkDraft || ws.readyState !== WebSocket.OPEN) return;
+  const next = normalizeNetworkDraft(networkDraft);
+  send({
+    type: "check_port",
+    bindMode: next.bindMode,
+    bindAddress: next.bindAddress ?? null,
+    port: next.port,
+  });
+}
+
+function updatePortStatus(): void {
+  const el = document.querySelector<HTMLElement>("[data-port-status]");
+  if (!el) return;
+  if (!portStatus) {
+    el.textContent = i18n.t("cfg.portUnknown");
+    el.dataset.tone = "neutral";
+    return;
+  }
+  const label =
+    portStatus.status === "available"
+      ? i18n.t("cfg.portAvailable")
+      : portStatus.status === "invalid"
+        ? i18n.t("cfg.portInvalid")
+        : i18n.t("cfg.portUnavailable");
+  el.textContent = portStatus.message ? `${label}: ${portStatus.message}` : label;
+  el.dataset.tone = portStatus.status === "available" ? "ok" : "warn";
+}
+
+function redirectToNetworkUrl(accessUrl: string | null): void {
+  if (!accessUrl) return;
+  const next = new URL(accessUrl);
+  next.pathname = "/config.html";
+  const current = new URL(location.href);
+  if (next.host === current.host && next.pathname === current.pathname) return;
+  setStatus(i18n.t("cfg.networkSavedRedirect"));
+  window.setTimeout(() => {
+    location.href = next.toString();
+  }, 600);
 }
 
 function cssEscape(value: string): string {

@@ -15,20 +15,26 @@ final class Server: ConnectionDelegate {
     weak var delegate: ServerDelegate?
 
     let port: UInt16
+    let bindHost: String?
     private let queue = DispatchQueue(label: "vibecast.server", attributes: .concurrent)
     private var listener: NWListener?
     private let staticServer: StaticFileServer
     private var connections: [UUID: Connection] = [:]
     private let lock = NSLock()
 
-    init(port: UInt16, staticServer: StaticFileServer) {
+    init(port: UInt16, bindHost: String?, staticServer: StaticFileServer) {
         self.port = port
+        self.bindHost = bindHost
         self.staticServer = staticServer
     }
 
     func start() throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
+        if let bindHost, !bindHost.isEmpty {
+            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(bindHost),
+                                                     port: NWEndpoint.Port(rawValue: port)!)
+        }
         let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
         listener.newConnectionHandler = { [weak self] nw in
             self?.accept(nw)

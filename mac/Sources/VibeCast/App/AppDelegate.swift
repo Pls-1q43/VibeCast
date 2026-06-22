@@ -10,7 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     private var session: SessionManager!
     private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private var aboutWindowController: AboutWindowController?
-    private let defaultPort: UInt16 = 8787
+    private let networkSettings = NetworkSettingsStore()
 
     private var pairedCount = 0
 
@@ -19,7 +19,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         configureStatusItem()
 
         let serverName = Host.current().localizedName ?? "Mac"
-        session = SessionManager(serverName: serverName, accessibilityGranted: accessibilityGranted())
+        session = SessionManager(serverName: serverName, accessibilityGranted: accessibilityGranted(),
+                                 networkSettings: networkSettings)
         session.delegate = self
 
         // 首次启动：若未授权辅助功能，弹出系统授权提示（PRD 7.2）。
@@ -63,12 +64,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             log(MacI18n.t("missingResources"))
             return
         }
-        let srv = Server(port: defaultPort, staticServer: staticServer)
+        let settings = networkSettings.normalizedForCurrentInterfaces()
+        let bindHost = settings.bindMode == .all ? nil : settings.bindAddress
+        let srv = Server(port: settings.port, bindHost: bindHost, staticServer: staticServer)
         srv.delegate = session
         do {
             try srv.start()
             server = srv
-            log(MacI18n.f("serviceStarted", Int(defaultPort)))
+            log(MacI18n.f("serviceStarted", bindHost ?? "*", Int(settings.port)))
         } catch {
             log(MacI18n.f("serviceStartFailed", String(describing: error)))
         }
@@ -99,10 +102,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         let running = server != nil
         menu.addItem(makeInfo(running ? MacI18n.t("serviceRunning") : MacI18n.t("serviceStopped")))
 
-        if let ip = NetworkInfo.primaryLANAddress() {
-            let url = "http://\(ip):\(defaultPort)/?token=\(Pairing.token)"
+        if let url = accessURL(path: "/"), let ip = displayAddress() {
             menu.addItem(makeInfo(MacI18n.t("phoneAddress")))
-            let addr = makeInfo("  \(ip):\(defaultPort)")
+            let addr = makeInfo("  \(ip):\(networkSettings.normalizedForCurrentInterfaces().port)")
             addr.toolTip = url
             menu.addItem(addr)
             let copyItem = NSMenuItem(title: MacI18n.t("copyAddress"), action: #selector(copyAddress), keyEquivalent: "")
@@ -229,11 +231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func openConfigPage() {
-        guard let ip = NetworkInfo.primaryLANAddress() else {
+        guard let urlStr = accessURL(path: "/config.html") else {
             log(MacI18n.t("configNoLAN"))
             return
         }
-        let urlStr = "http://\(ip):\(defaultPort)/config.html?token=\(Pairing.token)"
         if let url = URL(string: urlStr) {
             NSWorkspace.shared.open(url)
         }
@@ -297,5 +298,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     func sessionConfigChanged() {
         DispatchQueue.main.async { self.rebuildMenu() }
+    }
+
+    func sessionNetworkSettingsChanged(_ settings: NetworkSettings) {
+        DispatchQueue.main.async {
+            self.restartServer()
+        }
+    }
+
+    private func displayAddress() -> String? {
+        let settings = networkSettings.normalizedForCurrentInterfaces()
+        switch settings.bindMode {
+        case .all:
+            return NetworkInfo.primaryLANAddress()
+        case .address:
+            return settings.bindAddress
+        }
+    }
+
+    private func accessURL(path: String) -> String? {
+        guard let host = displayAddress() else { return nil }
+        let settings = networkSettings.normalizedForCurrentInterfaces()
+        return "http://\(host):\(settings.port)\(path)?token=\(Pairing.token)"
     }
 }

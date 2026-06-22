@@ -248,3 +248,59 @@ Mac 规则（顺序）：
 ```json
 { "type": "server_status", "serverName": "Jeffrey's Mac", "accessibilityGranted": true }
 ```
+
+### → get_network_settings
+```json
+{ "type": "get_network_settings" }
+```
+
+### ← network_settings
+```json
+{
+  "type": "network_settings",
+  "settings": { "bindMode": "address", "bindAddress": "192.168.1.12", "port": 8787 },
+  "interfaces": [
+    { "id": "en0-192.168.1.12", "name": "en0", "address": "192.168.1.12", "isPreferred": true }
+  ],
+  "portStatus": {
+    "bindMode": "address",
+    "bindAddress": "192.168.1.12",
+    "port": 8787,
+    "status": "available",
+    "message": "当前服务正在使用"
+  },
+  "accessUrl": "http://192.168.1.12:8787/?token=..."
+}
+```
+
+`bindMode` 为 `address` 或 `all`。`all` 表示监听全部本地接口 (`0.0.0.0`)，配置页必须在保存前提示公网暴露风险。
+
+### → check_port / ← port_check
+```json
+{ "type": "check_port", "bindMode": "address", "bindAddress": "192.168.1.12", "port": 8787 }
+```
+
+```json
+{
+  "type": "port_check",
+  "result": {
+    "bindMode": "address",
+    "bindAddress": "192.168.1.12",
+    "port": 8787,
+    "status": "available",
+    "message": "端口可用"
+  }
+}
+```
+
+`status` 为 `available`、`unavailable` 或 `invalid`。当前服务正在使用的配置应返回 `available`，避免把当前监听端口误报为冲突。
+
+### → set_network_settings
+```json
+{
+  "type": "set_network_settings",
+  "settings": { "bindMode": "all", "bindAddress": null, "port": 8788 }
+}
+```
+
+Mac 保存后会重启本地服务。若端口或访问 host 改变，配置页应跳转到 `network_settings.accessUrl` 对应的新配置页。

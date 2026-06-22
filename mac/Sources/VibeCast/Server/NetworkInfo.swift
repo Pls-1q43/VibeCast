@@ -3,11 +3,11 @@
 import Foundation
 
 enum NetworkInfo {
-    /// 返回首选 IPv4 局域网地址（en0/en1 优先），无则 nil。
-    static func primaryLANAddress() -> String? {
+    /// 返回当前可绑定的非 loopback IPv4 地址。
+    static func localInterfaces() -> [NetworkInterfaceInfo] {
         var candidates: [(iface: String, ip: String)] = []
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return nil }
+        guard getifaddrs(&ifaddr) == 0, let first = ifaddr else { return [] }
         defer { freeifaddrs(ifaddr) }
 
         var ptr: UnsafeMutablePointer<ifaddrs>? = first
@@ -23,15 +23,28 @@ enum NetworkInfo {
                 let name = String(cString: cur.pointee.ifa_name)
                 let ip = String(cString: host)
                 if ip.hasPrefix("169.254.") { continue } // 跳过自配 IP
-                candidates.append((name, ip))
+                if !candidates.contains(where: { $0.iface == name && $0.ip == ip }) {
+                    candidates.append((name, ip))
+                }
             }
         }
 
-        // en0/en1 优先（通常是 Wi-Fi/有线），否则取第一个。
-        if let preferred = candidates.first(where: { $0.iface == "en0" })
-            ?? candidates.first(where: { $0.iface == "en1" }) {
-            return preferred.ip
+        let preferred = preferredInterface(from: candidates)
+        return candidates.map {
+            NetworkInterfaceInfo(id: "\($0.iface)-\($0.ip)", name: $0.iface,
+                                 address: $0.ip, isPreferred: $0.iface == preferred?.iface && $0.ip == preferred?.ip)
         }
-        return candidates.first?.ip
+    }
+
+    /// 返回首选 IPv4 局域网地址（en0/en1 优先），无则 nil。
+    static func primaryLANAddress() -> String? {
+        localInterfaces().first(where: { $0.isPreferred })?.address ?? localInterfaces().first?.address
+    }
+
+    private static func preferredInterface(from candidates: [(iface: String, ip: String)]) -> (iface: String, ip: String)? {
+        // en0/en1 优先（通常是 Wi-Fi/有线），否则取第一个。
+        candidates.first(where: { $0.iface == "en0" })
+            ?? candidates.first(where: { $0.iface == "en1" })
+            ?? candidates.first
     }
 }
