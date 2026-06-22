@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Card } from "./card.ts";
 import type { I18n } from "../i18n.ts";
 
@@ -10,6 +10,10 @@ const i18n: I18n = {
 };
 
 describe("Card", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("grows the textarea to fit restored text", () => {
     const card = makeCard();
     mockScrollHeight(card.textarea, 180);
@@ -40,6 +44,22 @@ describe("Card", () => {
 
     expect(card.element.querySelector(".btn--primary")?.textContent).toBe("card.done");
   });
+
+  it("starts voice mode on long press from compact input", () => {
+    vi.useFakeTimers();
+    const onVoiceHoldStart = vi.fn();
+    const card = makeCard({ onVoiceHoldStart });
+    card.setStatus("focused");
+
+    const pressLayer = card.element.querySelector<HTMLElement>(".card__voicepress")!;
+    const event = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+    Object.defineProperty(event, "button", { value: 0 });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    pressLayer.dispatchEvent(event);
+    vi.advanceTimersByTime(451);
+
+    expect(onVoiceHoldStart).toHaveBeenCalledWith("codex");
+  });
 });
 
 function makeCard(overrides: Partial<ConstructorParameters<typeof Card>[4]> = {}): Card {
@@ -49,6 +69,8 @@ function makeCard(overrides: Partial<ConstructorParameters<typeof Card>[4]> = {}
     onSend: vi.fn(),
     onClear: vi.fn(),
     onRefocus: vi.fn(),
+    onVoiceHoldStart: vi.fn(),
+    onVoiceHoldEnd: vi.fn(),
     ...overrides,
   });
 }

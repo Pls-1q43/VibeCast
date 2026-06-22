@@ -19,6 +19,7 @@ export class Card {
   readonly targetId: TargetId;
   readonly textarea: HTMLTextAreaElement;
   private root: HTMLElement;
+  private inputWrap: HTMLElement;
   private statusEl: HTMLElement;
   private sendBtn: HTMLButtonElement;
   private clearBtn: HTMLButtonElement;
@@ -52,6 +53,7 @@ export class Card {
     header.append(icon, titleWrap);
 
     // 文本框（标准 textarea，PRD 5.2）
+    this.inputWrap = el("div", "card__inputwrap");
     this.textarea = document.createElement("textarea");
     this.textarea.className = "card__textarea";
     this.textarea.rows = 4;
@@ -64,13 +66,17 @@ export class Card {
       this.syncTextareaHeight();
       cb.onInput(targetId);
     });
-    this.textarea.addEventListener("pointerdown", (event) => this.onPointerDown(event, cb));
-    this.textarea.addEventListener("pointerup", () => this.finishVoiceHold(cb, "release"));
-    this.textarea.addEventListener("pointercancel", () => this.finishVoiceHold(cb, "cancel"));
-    this.textarea.addEventListener("pointerleave", () => this.finishVoiceHold(cb, "cancel"));
     this.textarea.addEventListener("contextmenu", (event) => {
       if (this.voiceActive || this.voiceTimer !== null) event.preventDefault();
     });
+    const voicePressLayer = el("div", "card__voicepress");
+    voicePressLayer.textContent = i18n.t("card.placeholder");
+    voicePressLayer.addEventListener("pointerdown", (event) => this.onVoicePointerDown(event, cb));
+    voicePressLayer.addEventListener("pointerup", () => this.finishVoiceHold(cb, "release"));
+    voicePressLayer.addEventListener("pointercancel", () => this.finishVoiceHold(cb, "cancel"));
+    voicePressLayer.addEventListener("pointerleave", () => this.finishVoiceHold(cb, "cancel"));
+    voicePressLayer.addEventListener("contextmenu", (event) => event.preventDefault());
+    this.inputWrap.append(this.textarea, voicePressLayer);
 
     // 操作区
     const actions = el("div", "card__actions");
@@ -79,7 +85,7 @@ export class Card {
     this.refocusBtn = button(i18n.t("card.refocus"), "btn btn--ghost", () => cb.onRefocus(targetId));
     actions.append(this.sendBtn, this.clearBtn, this.refocusBtn);
 
-    this.root.append(header, this.textarea, actions);
+    this.root.append(header, this.inputWrap, actions);
     this.setStatus("disconnected");
     this.syncTextareaHeight();
   }
@@ -163,15 +169,19 @@ export class Card {
 
   private syncTextareaHeight(): void {
     this.textarea.style.height = "auto";
-    const minHeight = this.text.trim().length > 0 || document.activeElement === this.textarea ? this.textarea.scrollHeight : 46;
+    const compact = this.text.trim().length === 0 && document.activeElement !== this.textarea;
+    this.inputWrap.classList.toggle("card__inputwrap--compact", compact);
+    const minHeight = compact ? 46 : this.textarea.scrollHeight;
     this.textarea.style.height = `${minHeight}px`;
   }
 
-  private onPointerDown(event: PointerEvent, cb: CardCallbacks): void {
+  private onVoicePointerDown(event: PointerEvent, cb: CardCallbacks): void {
     if (event.button !== 0 || this.status === "disconnected" || this.status === "reconnecting") return;
+    event.preventDefault();
     this.clearVoiceTimer();
     this.voicePointerId = event.pointerId;
-    this.textarea.setPointerCapture?.(event.pointerId);
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture?.(event.pointerId);
     this.voiceTimer = window.setTimeout(() => {
       this.voiceTimer = null;
       this.voiceActive = true;
@@ -182,14 +192,20 @@ export class Card {
   }
 
   private finishVoiceHold(cb: CardCallbacks, reason: "release" | "cancel"): void {
+    const wasPendingTextTap = this.voiceTimer !== null && !this.voiceActive && reason === "release";
     this.clearVoiceTimer();
     if (this.voicePointerId !== null) {
       try {
-        this.textarea.releasePointerCapture?.(this.voicePointerId);
+        this.root.querySelector<HTMLElement>(".card__voicepress")?.releasePointerCapture?.(this.voicePointerId);
       } catch {
         /* pointer capture may already be gone */
       }
       this.voicePointerId = null;
+    }
+    if (wasPendingTextTap) {
+      this.textarea.focus();
+      this.syncTextareaHeight();
+      return;
     }
     if (!this.voiceActive) return;
     this.voiceActive = false;
