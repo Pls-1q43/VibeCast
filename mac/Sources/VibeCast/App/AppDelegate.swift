@@ -285,13 +285,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     @objc private func showLog() {
         let alert = NSAlert()
         alert.messageText = MacI18n.t("diagnosticsTitle")
-        alert.informativeText = DiagnosticsLog.shared.snapshot(maxTail: 40).joined(separator: "\n")
+        alert.accessoryView = diagnosticsLogView()
         alert.addButton(withTitle: MacI18n.t("exportDiagnostics"))
         alert.addButton(withTitle: MacI18n.t("close"))
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn {
             exportDiagnostics()
         }
+    }
+
+    private func diagnosticsLogView() -> NSView {
+        let text = DiagnosticsLog.shared.snapshot(maxTail: 200).joined(separator: "\n")
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 720, height: 420))
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = false
+        scroll.borderType = .bezelBorder
+
+        let textView = NSTextView(frame: scroll.bounds)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.string = text
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textColor = .labelColor
+        textView.backgroundColor = .textBackgroundColor
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                       height: CGFloat.greatestFiniteMagnitude)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: scroll.contentSize.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+
+        scroll.documentView = textView
+        NSLayoutConstraint.activate([
+            scroll.widthAnchor.constraint(equalToConstant: 720),
+            scroll.heightAnchor.constraint(equalToConstant: 420)
+        ])
+        return scroll
     }
 
     private func exportDiagnostics() {

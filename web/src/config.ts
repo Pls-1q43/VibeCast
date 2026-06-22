@@ -571,6 +571,8 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
         if (p.writeMode === "clipboard_replace" || p.writeMode === "clipboard_paste") {
           p.writeMode = "clipboard_insert";
         }
+      } else if (targetId === "notion" && p.writeMode === "clipboard_replace") {
+        p.allowSelectAllReplace = true;
       }
     }), i18n.t("cfg.syncEditorHint")),
     wrapField(i18n.t("cfg.writeMode"), select(p.writeMode ?? "auto", [
@@ -581,6 +583,9 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
     ], (v) => {
       p.writeMode = v as TargetProfile["writeMode"];
       if (v === "clipboard_insert") p.allowSelectAllReplace = false;
+      if (targetId === "notion" && v === "clipboard_replace" && p.syncMode !== "editor") {
+        p.allowSelectAllReplace = true;
+      }
       if ((v === "clipboard_replace" || v === "clipboard_paste") && p.syncMode === "editor") {
         p.writeMode = "clipboard_insert";
         p.allowSelectAllReplace = false;

@@ -184,7 +184,7 @@ struct TargetConfigEntry: Codable, Sendable {
 
     func normalized() -> TargetConfigEntry {
         var entry = self
-        entry.profile = entry.profile.normalized()
+        entry.profile = entry.profile.normalized(for: id)
         return entry
     }
 }
@@ -390,6 +390,10 @@ final class TargetConfigStore {
 
 extension TargetProfile {
     func normalized() -> TargetProfile {
+        normalized(for: nil)
+    }
+
+    func normalized(for targetId: TargetId?) -> TargetProfile {
         var p = self
         p.displayName = p.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         if p.displayName.isEmpty { p.displayName = "Target" }
@@ -411,6 +415,9 @@ extension TargetProfile {
             if p.writeMode == .clipboardReplace || p.writeMode == .clipboardPaste {
                 p.writeMode = .clipboardInsert
             }
+        }
+        if targetId == .notion && p.syncMode == .mirror && p.writeMode == .clipboardReplace {
+            p.allowSelectAllReplace = true
         }
         return p
     }

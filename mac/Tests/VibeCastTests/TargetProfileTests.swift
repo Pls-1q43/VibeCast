@@ -38,6 +38,18 @@ final class TargetProfileTests: XCTestCase {
         XCTAssertEqual(p.focusMode, .preserveLastFocus)
     }
 
+    func testNotionMirrorClipboardReplaceNormalizesAllowReplace() {
+        var p = TargetProfile.defaultFor(.notion)
+        p.syncMode = .mirror
+        p.writeMode = .clipboardReplace
+        p.allowSelectAllReplace = false
+
+        let normalized = p.normalized(for: .notion)
+
+        XCTAssertEqual(normalized.writeMode, .clipboardReplace)
+        XCTAssertTrue(normalized.allowSelectAllReplace)
+    }
+
     func testObsidianDefaultsUseEditorMode() {
         let p = TargetProfile.defaultFor(.obsidian)
         XCTAssertEqual(p.displayName, "Obsidian")
