@@ -35,7 +35,7 @@ final class Server: ConnectionDelegate {
         params.allowLocalEndpointReuse = true
         if let bindHost, !bindHost.isEmpty {
             params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(bindHost),
-                                                     port: NWEndpoint.Port(rawValue: port)!)
+                                                     port: NWEndpoint.Port(rawValue: 0)!)
         }
         let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
         listener.newConnectionHandler = { [weak self] nw in
