@@ -265,9 +265,9 @@ Mac 规则（顺序）：
 
 `TargetProfile.voiceShortcut`：
 ```json
-{ "voiceShortcut": { "modifiers": [], "key": "right_option" } }
+{ "voiceShortcut": { "modifiers": [], "key": "right_command" } }
 ```
-默认值为右 Option；配置页可按目标应用调整。
+默认值为右 Option；闪电说通常使用右 Cmd (`right_command`)。配置页把这个选项放在全局“语音输入环境”里，保存时统一写入各目标 Profile。
 
 ---
 

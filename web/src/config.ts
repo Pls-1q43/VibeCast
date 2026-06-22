@@ -30,6 +30,8 @@ const PRESET_LABELS: Record<string, string> = {
   codebuddy: "CodeBuddy",
 };
 
+type VoiceShortcut = NonNullable<TargetProfile["voiceShortcut"]>;
+
 function pairingToken(): string {
   const fromUrl = new URLSearchParams(location.search).get("token");
   if (fromUrl) {
@@ -421,6 +423,33 @@ function renderVoiceEnvironment(): HTMLElement {
       ].filter(Boolean).join(" · ")
     : i18n.t("cfg.loading");
 
+  const currentShortcut = currentGlobalVoiceShortcut();
+  const keyInput = input(currentShortcut.key, "right_command");
+  const modsInput = input(currentShortcut.modifiers.join(","), "command, option, control, shift");
+  const preset = select(voiceShortcutPresetValue(currentShortcut), [
+    ["right_command", i18n.t("cfg.voiceShortcutRightCommand")],
+    ["right_option", i18n.t("cfg.voiceShortcutRightOption")],
+    ["left_command", i18n.t("cfg.voiceShortcutLeftCommand")],
+    ["left_option", i18n.t("cfg.voiceShortcutLeftOption")],
+    ["custom", i18n.t("cfg.voiceShortcutCustom")],
+  ], (v) => {
+    const next = voiceShortcutFromPreset(v, { modifiers: splitList(modsInput.value), key: keyInput.value || currentShortcut.key });
+    keyInput.value = next.key;
+    modsInput.value = next.modifiers.join(",");
+  });
+  keyInput.addEventListener("input", () => {
+    preset.value = voiceShortcutPresetValue({ modifiers: splitList(modsInput.value), key: keyInput.value });
+  });
+  modsInput.addEventListener("input", () => {
+    preset.value = voiceShortcutPresetValue({ modifiers: splitList(modsInput.value), key: keyInput.value });
+  });
+  const controls = el("div", "cfg-row__quick");
+  controls.append(
+    wrapField(i18n.t("cfg.voiceWakeShortcut"), preset, i18n.t("cfg.voiceWakeShortcutHint")),
+    wrapField(i18n.t("cfg.voiceShortcutKey"), keyInput),
+    wrapField(i18n.t("cfg.voiceShortcutMods"), modsInput),
+  );
+
   const actions = el("div", "cfg-row__actions");
   actions.append(
     button(i18n.t("cfg.refreshVoice"), "btn btn--ghost", () => {
@@ -431,9 +460,72 @@ function renderVoiceEnvironment(): HTMLElement {
       send({ type: "install_virtual_mic" });
       setStatus(i18n.t("cfg.installingVoice"));
     }),
+    button(i18n.t("cfg.saveVoiceShortcut"), "btn btn--primary", () => {
+      saveGlobalVoiceShortcut({ modifiers: splitList(modsInput.value), key: keyInput.value || "right_command" });
+    }),
   );
-  section.append(title, hint, status, detail, actions);
+  section.append(title, hint, status, detail, controls, actions);
   return section;
+}
+
+function currentGlobalVoiceShortcut(): VoiceShortcut {
+  const shortcut = targets.find((t) => t.profile.voiceShortcut)?.profile.voiceShortcut;
+  return normalizeVoiceShortcut(shortcut);
+}
+
+function normalizeVoiceShortcut(shortcut?: VoiceShortcut | null): VoiceShortcut {
+  const key = shortcut?.key?.trim() || "right_option";
+  return { modifiers: shortcut?.modifiers ?? [], key };
+}
+
+function voiceShortcutPresetValue(shortcut: VoiceShortcut): string {
+  if (shortcut.modifiers.length) return "custom";
+  switch (shortcut.key.trim().toLowerCase()) {
+  case "right_command":
+  case "rightcommand":
+  case "right_cmd":
+  case "rightcmd":
+  case "command_right":
+  case "cmd_right":
+    return "right_command";
+  case "right_option":
+  case "rightoption":
+  case "right_opt":
+  case "rightopt":
+  case "option_right":
+  case "opt_right":
+    return "right_option";
+  case "left_command":
+  case "leftcommand":
+  case "left_cmd":
+  case "leftcmd":
+  case "command_left":
+  case "cmd_left":
+    return "left_command";
+  case "left_option":
+  case "leftoption":
+  case "left_opt":
+  case "leftopt":
+  case "option_left":
+  case "opt_left":
+    return "left_option";
+  default:
+    return "custom";
+  }
+}
+
+function voiceShortcutFromPreset(value: string, fallback: VoiceShortcut): VoiceShortcut {
+  if (value === "custom") return fallback;
+  return { modifiers: [], key: value };
+}
+
+function saveGlobalVoiceShortcut(shortcut: VoiceShortcut): void {
+  const normalized = normalizeVoiceShortcut(shortcut);
+  for (const target of targets) {
+    target.profile.voiceShortcut = normalized;
+    send({ type: "set_config", targetId: target.id, profile: target.profile });
+  }
+  setStatus(i18n.t("cfg.voiceShortcutSaved", { key: normalized.key }));
 }
 
 function renderTargetList(): HTMLElement {
@@ -595,15 +687,6 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
   sendShortcutMods.addEventListener("input", () => {
     p.sendShortcut = { modifiers: splitList(sendShortcutMods.value), key: p.sendShortcut?.key ?? "enter" };
   });
-  const voiceShortcutKey = input(p.voiceShortcut?.key ?? "right_option", "right_option");
-  voiceShortcutKey.addEventListener("input", () => {
-    p.voiceShortcut = { modifiers: p.voiceShortcut?.modifiers ?? [], key: voiceShortcutKey.value || "right_option" };
-  });
-  const voiceShortcutMods = input((p.voiceShortcut?.modifiers ?? []).join(","), "command, option, control, shift");
-  voiceShortcutMods.addEventListener("input", () => {
-    p.voiceShortcut = { modifiers: splitList(voiceShortcutMods.value), key: p.voiceShortcut?.key ?? "right_option" };
-  });
-
   const grid = el("div", "cfg-advanced__grid");
   grid.append(
     wrapField(i18n.t("cfg.focusMode"), select(p.focusMode, [
@@ -652,8 +735,6 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
     ], (v) => (p.sendMode = v as TargetProfile["sendMode"]))),
     wrapField(i18n.t("cfg.sendShortcutKey"), sendShortcutKey),
     wrapField(i18n.t("cfg.sendShortcutMods"), sendShortcutMods),
-    wrapField(i18n.t("cfg.voiceShortcutKey"), voiceShortcutKey, i18n.t("cfg.voiceShortcutHint")),
-    wrapField(i18n.t("cfg.voiceShortcutMods"), voiceShortcutMods),
     wrapField(i18n.t("cfg.sendButtonContains"), inputWithChange(p.sendButtonTitleContains ?? "", (v) => (p.sendButtonTitleContains = v || null))),
     wrapField(i18n.t("cfg.clearAfterSend"), checkbox(p.clearAfterSend, (v) => (p.clearAfterSend = v))),
     wrapField(i18n.t("cfg.allowEmpty"), checkbox(p.allowEmpty, (v) => (p.allowEmpty = v))),
