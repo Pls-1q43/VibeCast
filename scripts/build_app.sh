@@ -11,6 +11,7 @@ DIST_APP="$DIST/VibeCast.app"
 BUNDLE_ID="${BUNDLE_ID:-com.vibecast.app}"
 VERSION="${VERSION:-0.1.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"
+SWIFT_ARCHS="${SWIFT_ARCHS:-arm64 x86_64}"
 APPCAST_URL="${APPCAST_URL:-https://pls-1q43.github.io/VibeCast/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-IqzH3LOJYajczC0ywxHO2dd+P8rVjAZKru+JZ4H1oLM=}"
 ZIP="$DIST/VibeCast-$VERSION-macos.zip"
@@ -55,6 +56,8 @@ clean_bundle_metadata() {
     xattr -d 'com.apple.fileprovider.fpfs#P' "$bundle" 2>/dev/null || true
     find "$bundle" -exec xattr -d com.apple.FinderInfo {} \; 2>/dev/null || true
     find "$bundle" -exec xattr -d 'com.apple.fileprovider.fpfs#P' {} \; 2>/dev/null || true
+    xattr -cr "$bundle"
+    find "$bundle" -exec xattr -c {} \; 2>/dev/null || true
   fi
 }
 
@@ -80,10 +83,33 @@ verify_zip_bundle() {
   return 1
 }
 
+verify_binary_archs() {
+  local binary="$1"
+  local missing=0
+  if ! command -v lipo >/dev/null 2>&1; then
+    echo "缺少命令：lipo"
+    return 1
+  fi
+  for arch in $SWIFT_ARCHS; do
+    if ! lipo "$binary" -verify_arch "$arch" >/dev/null 2>&1; then
+      echo "二进制缺少架构：$arch ($binary)"
+      missing=1
+    fi
+  done
+  [ "$missing" -eq 0 ] || return 1
+  echo "    架构: $(lipo -archs "$binary")"
+}
+
 need_cmd node
 need_cmd npm
 need_cmd swift
 need_cmd ditto
+need_cmd lipo
+
+SWIFT_BUILD_ARGS=(-c release)
+for arch in $SWIFT_ARCHS; do
+  SWIFT_BUILD_ARGS+=(--arch "$arch")
+done
 
 NODE_MAJOR="$(node -p 'Number(process.versions.node.split(".")[0])')"
 if [ "$NODE_MAJOR" -lt 18 ]; then
@@ -109,17 +135,20 @@ if grep -q "Placeholder. Run" "$WEB_RES/index.html" "$WEB_RES/config.html"; then
   exit 1
 fi
 
-echo "==> Release 构建 Swift 可执行文件"
-( cd "$MAC" && swift build -c release )
+echo "==> Release 构建 Swift 可执行文件 ($SWIFT_ARCHS)"
+( cd "$MAC" && swift build "${SWIFT_BUILD_ARGS[@]}" )
 
-BIN="$MAC/.build/release/VibeCast"
+BIN_DIR="$(cd "$MAC" && swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path | tail -n 1)"
+BIN="$BIN_DIR/VibeCast"
 [ -x "$BIN" ] || { echo "未找到可执行文件 $BIN"; exit 1; }
+verify_binary_archs "$BIN"
 
 echo "==> 组装 .app bundle"
 rm -rf "$APP" "$DIST_APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 
 cp "$BIN" "$APP/Contents/MacOS/VibeCast"
+verify_binary_archs "$APP/Contents/MacOS/VibeCast"
 
 if [ -f "$APP_ICON" ]; then
   cp "$APP_ICON" "$APP/Contents/Resources/AppIcon.icns"
@@ -130,12 +159,21 @@ if [ -f "$STATUS_BAR_ICON" ]; then
 fi
 
 # SwiftPM 资源 bundle（含前端 web/）
-RES_BUNDLE="$MAC/.build/release/VibeCast_VibeCast.bundle"
+RES_BUNDLE="$BIN_DIR/VibeCast_VibeCast.bundle"
 if [ -d "$RES_BUNDLE" ]; then
   cp -R "$RES_BUNDLE" "$APP/Contents/Resources/"
 fi
 
-SPARKLE_FRAMEWORK="$(find "$MAC/.build" -path "*/Sparkle.framework" -type d | head -n 1)"
+SPARKLE_FRAMEWORK=""
+for candidate in "$BIN_DIR/Sparkle.framework" "$BIN_DIR/Frameworks/Sparkle.framework"; do
+  if [ -d "$candidate" ]; then
+    SPARKLE_FRAMEWORK="$candidate"
+    break
+  fi
+done
+if [ -z "$SPARKLE_FRAMEWORK" ]; then
+  SPARKLE_FRAMEWORK="$(find "$MAC/.build" -path "*/Sparkle.framework" -type d | head -n 1)"
+fi
 if [ -z "$SPARKLE_FRAMEWORK" ]; then
   echo "未找到 Sparkle.framework，请确认 SwiftPM 已解析 Sparkle 依赖"
   exit 1
@@ -211,8 +249,13 @@ if command -v codesign >/dev/null 2>&1; then
   verify_zip_bundle "$ZIP"
 fi
 rm -rf "$DIST_APP"
-ditto --norsrc "$APP" "$DIST_APP"
+ditto --norsrc --noextattr --noqtn --noacl "$APP" "$DIST_APP"
 clean_bundle_metadata "$DIST_APP"
+if command -v codesign >/dev/null 2>&1; then
+  if ! verify_bundle_signature "$DIST_APP"; then
+    echo "警告：$DIST_APP 位于可能会附加扩展属性的目录，严格签名校验未通过；发布 zip 已单独校验。"
+  fi
+fi
 
 echo "==> 完成: $DIST_APP"
 echo "==> 发布包: $ZIP"

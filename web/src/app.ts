@@ -8,6 +8,7 @@ import { IMEController } from "./ime/imeController.ts";
 import { Card } from "./ui/card.ts";
 import type { SyncStatus } from "./ui/status.ts";
 import { LANGUAGES, createI18n, setLang, type I18n, type Lang } from "./i18n.ts";
+import { applyTheme, readTheme, writeTheme, type AppTheme } from "./ui/theme.ts";
 
 export class App {
   private store = new DraftStore();
@@ -31,6 +32,7 @@ export class App {
   private emptyState!: HTMLElement;
   private serverName = "Mac";
   private i18n: I18n = createI18n();
+  private theme: AppTheme = readTheme();
 
   constructor(private mount: HTMLElement) {
     this.ws = new WSClient({
@@ -60,6 +62,7 @@ export class App {
   }
 
   start(): void {
+    applyTheme(this.theme);
     this.render();
     this.ws.connect();
   }
@@ -76,7 +79,10 @@ export class App {
     logo.setAttribute("aria-hidden", "true");
     const name = document.createElement("strong");
     name.textContent = "VibeCast";
-    brand.append(logo, name, this.renderLanguagePicker());
+    const tools = document.createElement("div");
+    tools.className = "brandbar__tools";
+    tools.append(this.renderThemeSwitch(), this.renderLanguagePicker());
+    brand.append(logo, name, tools);
     this.mount.append(brand);
 
     const hint = document.createElement("p");
@@ -117,6 +123,43 @@ export class App {
       location.reload();
     });
     wrap.append(span, select);
+    return wrap;
+  }
+
+  private renderThemeSwitch(): HTMLElement {
+    const wrap = document.createElement("div");
+    wrap.className = "theme-switch";
+    wrap.setAttribute("role", "group");
+    wrap.setAttribute("aria-label", this.i18n.t("app.theme"));
+
+    const buttons: HTMLButtonElement[] = [];
+    const update = () => {
+      for (const button of buttons) {
+        const active = button.dataset.themeValue === this.theme;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+      }
+    };
+
+    const addOption = (theme: AppTheme, label: string) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "theme-switch__option";
+      button.dataset.themeValue = theme;
+      button.textContent = label;
+      button.addEventListener("click", () => {
+        this.theme = theme;
+        writeTheme(theme);
+        applyTheme(theme);
+        update();
+      });
+      buttons.push(button);
+      wrap.append(button);
+    };
+
+    addOption("auto", this.i18n.t("app.themeAuto"));
+    addOption("eink", this.i18n.t("app.themeEink"));
+    update();
     return wrap;
   }
 

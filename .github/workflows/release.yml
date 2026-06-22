@@ -86,6 +86,21 @@ jobs:
           BUILD_NUMBER: ${{ github.run_number }}
         run: bash scripts/build_app.sh
 
+      - name: Verify universal macOS app archive
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CHECK_DIR="$RUNNER_TEMP/vibecast-universal-check"
+          rm -rf "$CHECK_DIR"
+          mkdir -p "$CHECK_DIR"
+          ditto -x -k "dist/VibeCast-$VERSION-macos.zip" "$CHECK_DIR"
+          APP_BIN="$CHECK_DIR/VibeCast.app/Contents/MacOS/VibeCast"
+          lipo "$APP_BIN" -verify_arch arm64
+          lipo "$APP_BIN" -verify_arch x86_64
+          lipo -archs "$APP_BIN"
+
       - name: Download Sparkle tools
         shell: bash
         run: |

@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --bg: #f0fdfa;
   --card-bg: #ffffff;
   --card-selected: #e6fffb;
@@ -19,7 +20,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="eink"]) {
+    color-scheme: dark;
     --bg: #0f172a;
     --card-bg: #162033;
     --card-selected: #123b3a;
@@ -35,6 +37,25 @@
     --active: #2dd4bf;
     --muted: #1e293b;
   }
+}
+
+:root[data-theme="eink"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --card-bg: #ffffff;
+  --card-selected: #ffffff;
+  --border: #111111;
+  --border-selected: #000000;
+  --text: #000000;
+  --text-dim: #262626;
+  --primary: #000000;
+  --primary-text: #ffffff;
+  --accent: #000000;
+  --ok: #000000;
+  --warn: #111111;
+  --error: #000000;
+  --active: #000000;
+  --muted: #f4f4f4;
 }
 
 * {
@@ -53,6 +74,13 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+button,
+input,
+select,
+textarea {
+  color-scheme: inherit;
+}
+
 #app {
   max-width: 640px;
   margin: 0 auto;
@@ -65,10 +93,25 @@ body {
 .brandbar {
   min-height: 44px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   font-size: 18px;
   color: var(--text);
+}
+
+.brandbar__tools {
+  margin-inline-start: auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+}
+
+.brandbar__tools .language-picker {
+  margin-inline-start: 0;
 }
 
 .language-picker {
@@ -97,6 +140,35 @@ body {
   height: 34px;
   border-radius: var(--radius);
   flex: 0 0 34px;
+}
+
+.theme-switch {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+}
+
+.theme-switch__option {
+  min-height: 28px;
+  min-width: 54px;
+  border: 0;
+  border-radius: calc(var(--radius) - 2px);
+  padding: 0 9px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.theme-switch__option.is-active {
+  background: var(--primary);
+  color: var(--primary-text);
 }
 
 .card-list {
@@ -286,4 +358,65 @@ body {
 .connbar[data-state="connecting"],
 .connbar[data-state="disconnected"] {
   color: var(--warn);
+}
+
+:root[data-theme="eink"] body {
+  background: #ffffff;
+}
+
+:root[data-theme="eink"] img {
+  filter: grayscale(1) contrast(1.2);
+}
+
+:root[data-theme="eink"] .hint,
+:root[data-theme="eink"] .empty-state,
+:root[data-theme="eink"] .card,
+:root[data-theme="eink"] .connbar,
+:root[data-theme="eink"] .theme-switch,
+:root[data-theme="eink"] .language-picker select,
+:root[data-theme="eink"] .card__textarea,
+:root[data-theme="eink"] .btn {
+  box-shadow: none;
+  border-color: #000000;
+}
+
+:root[data-theme="eink"] .card {
+  border-width: 1px;
+}
+
+:root[data-theme="eink"] .card--selected {
+  background: #ffffff;
+  outline: 2px solid #000000;
+  outline-offset: 2px;
+}
+
+:root[data-theme="eink"] .card__icon {
+  background: #ffffff;
+  color: #000000;
+  border: 1px solid #000000;
+}
+
+:root[data-theme="eink"] .card__textarea,
+:root[data-theme="eink"] .btn,
+:root[data-theme="eink"] .connbar {
+  background: #ffffff;
+}
+
+:root[data-theme="eink"] .btn--primary,
+:root[data-theme="eink"] .theme-switch__option.is-active {
+  background: #000000;
+  color: #ffffff;
+  border-color: #000000;
+}
+
+@media (max-width: 430px) {
+  .brandbar__tools {
+    width: 100%;
+    margin-inline-start: 0;
+    justify-content: space-between;
+  }
+
+  .language-picker select {
+    max-width: 118px;
+  }
 }
