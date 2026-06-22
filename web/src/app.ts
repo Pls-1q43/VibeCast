@@ -16,6 +16,7 @@ interface ActiveVoiceSession {
   sessionId: string;
   recorder: VoiceRecorder;
   ready: boolean;
+  startSent: boolean;
   pendingChunks: VoiceRecorderChunk[];
 }
 
@@ -359,6 +360,11 @@ export class App {
     const card = this.cards.get(targetId);
     if (!card) return;
 
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      card.setStatus("sync_failed", this.i18n.t("voice.errorSecureContext"));
+      return;
+    }
+
     const sessionId = uuid();
     this.activeTarget = targetId;
     this.sessions.set(targetId, sessionId);
@@ -370,7 +376,7 @@ export class App {
       onChunk: (chunk) => this.onVoiceChunk(chunk),
       onError: (message) => this.failVoice(targetId, message),
     });
-    this.activeVoice = { targetId, sessionId, recorder, ready: false, pendingChunks: [] };
+    this.activeVoice = { targetId, sessionId, recorder, ready: false, startSent: false, pendingChunks: [] };
 
     try {
       const sampleRate = await recorder.start();
@@ -383,8 +389,13 @@ export class App {
         codec: "pcm_s16le",
         clientTimestamp: Date.now(),
       });
-    } catch {
-      this.stopVoice("error");
+      if (this.activeVoice?.sessionId === sessionId) this.activeVoice.startSent = true;
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : this.i18n.t("voice.errorMicrophone");
+      card.setStatus("sync_failed", message);
+      const voice = this.activeVoice;
+      voice?.recorder.stop();
+      if (voice?.sessionId === sessionId) this.activeVoice = null;
     }
   }
 
@@ -419,13 +430,15 @@ export class App {
     const voice = this.activeVoice;
     if (!voice) return;
     voice.recorder.stop();
-    this.ws.send({
-      type: "voice_stop",
-      sessionId: voice.sessionId,
-      targetId: voice.targetId,
-      reason,
-      clientTimestamp: Date.now(),
-    });
+    if (voice.startSent) {
+      this.ws.send({
+        type: "voice_stop",
+        sessionId: voice.sessionId,
+        targetId: voice.targetId,
+        reason,
+        clientTimestamp: Date.now(),
+      });
+    }
     this.cards.get(voice.targetId)?.setStatus(reason === "release" ? "synced" : "focused");
     this.activeVoice = null;
   }

@@ -33,11 +33,17 @@ final class Server: ConnectionDelegate {
     func start() throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
+        let listener: NWListener
         if let bindHost, !bindHost.isEmpty {
+            guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+                throw NWError.posix(.EINVAL)
+            }
             params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(bindHost),
-                                                     port: NWEndpoint.Port(rawValue: 0)!)
+                                                     port: endpointPort)
+            listener = try NWListener(using: params)
+        } else {
+            listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
         }
-        let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
         listener.newConnectionHandler = { [weak self] nw in
             self?.accept(nw)
         }

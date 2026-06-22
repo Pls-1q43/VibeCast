@@ -28,6 +28,9 @@ export class VoiceRecorder {
     if (this.started && this.audioContext) return this.audioContext.sampleRate;
     this.sequence = 0;
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Microphone capture is unavailable in this browser context");
+      }
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -45,9 +48,7 @@ export class VoiceRecorder {
       this.started = true;
       return this.audioContext.sampleRate;
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Microphone permission failed";
       this.stop();
-      this.opts.onError(message);
       throw error;
     }
   }
