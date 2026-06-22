@@ -6,7 +6,8 @@ import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate {
     private var statusItem: NSStatusItem!
-    private var server: Server?
+    private var phoneServer: Server?
+    private var configServer: Server?
     private var session: SessionManager!
     private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private var aboutWindowController: AboutWindowController?
@@ -28,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             AccessibilityPermission.promptIfNeeded()
         }
 
-        startServer()
+        startConfigServer()
+        startPhoneServer()
         rebuildMenu()
 
         // 权限可能在运行中被授予，菜单周期性刷新权限状态。
@@ -59,18 +61,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     // MARK: - Server 生命周期
 
-    private func startServer() {
+    private func startConfigServer() {
+        guard configServer == nil else { return }
+        guard let staticServer = StaticFileServer() else {
+            log(MacI18n.t("missingResources"))
+            return
+        }
+        for port in UInt16(8786)...UInt16(8795) {
+            let srv = Server(port: port, bindHost: "127.0.0.1", staticServer: staticServer, routeMode: .config)
+            srv.delegate = session
+            do {
+                try srv.start()
+                configServer = srv
+                log(MacI18n.f("configServiceStarted", Int(port)))
+                return
+            } catch {
+                continue
+            }
+        }
+        log(MacI18n.t("configServiceStartFailed"))
+    }
+
+    private func startPhoneServer() {
         guard let staticServer = StaticFileServer() else {
             log(MacI18n.t("missingResources"))
             return
         }
         let settings = networkSettings.normalizedForCurrentInterfaces()
         let bindHost = settings.bindMode == .all ? nil : settings.bindAddress
-        let srv = Server(port: settings.port, bindHost: bindHost, staticServer: staticServer)
+        let srv = Server(port: settings.port, bindHost: bindHost, staticServer: staticServer, routeMode: .phone)
         srv.delegate = session
         do {
             try srv.start()
-            server = srv
+            phoneServer = srv
             log(MacI18n.f("serviceStarted", bindHost ?? "*", Int(settings.port)))
         } catch {
             log(MacI18n.f("serviceStartFailed", String(describing: error)))
@@ -78,12 +101,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         rebuildMenu()
     }
 
-    private func restartServer() {
+    private func restartPhoneServer() {
         log(MacI18n.t("restarting"))
-        server?.stop()
-        server = nil
+        phoneServer?.stop()
+        phoneServer = nil
         pairedCount = 0
-        startServer()
+        startPhoneServer()
+    }
+
+    private func restartAllServers() {
+        log(MacI18n.t("restarting"))
+        phoneServer?.stop()
+        configServer?.stop()
+        phoneServer = nil
+        configServer = nil
+        pairedCount = 0
+        startConfigServer()
+        startPhoneServer()
     }
 
     // MARK: - 权限
@@ -99,7 +133,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
         let menu = NSMenu()
 
-        let running = server != nil
+        let running = phoneServer != nil
         menu.addItem(makeInfo(running ? MacI18n.t("serviceRunning") : MacI18n.t("serviceStopped")))
 
         if let url = accessURL(path: "/"), let ip = displayAddress() {
@@ -214,7 +248,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func restart() {
-        restartServer()
+        restartAllServers()
     }
 
     @objc private func regenToken() {
@@ -231,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func openConfigPage() {
-        guard let urlStr = accessURL(path: "/config.html") else {
+        guard let urlStr = configURL() else {
             log(MacI18n.t("configNoLAN"))
             return
         }
@@ -272,7 +306,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func quit() {
-        server?.stop()
+        phoneServer?.stop()
+        configServer?.stop()
         NSApp.terminate(nil)
     }
 
@@ -302,7 +337,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     func sessionNetworkSettingsChanged(_ settings: NetworkSettings) {
         DispatchQueue.main.async {
-            self.restartServer()
+            self.restartPhoneServer()
         }
     }
 
@@ -320,5 +355,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         guard let host = displayAddress() else { return nil }
         let settings = networkSettings.normalizedForCurrentInterfaces()
         return "http://\(host):\(settings.port)\(path)?token=\(Pairing.token)"
+    }
+
+    private func configURL() -> String? {
+        guard let port = configServer?.port else { return nil }
+        return "http://127.0.0.1:\(port)/config.html?token=\(Pairing.token)"
     }
 }

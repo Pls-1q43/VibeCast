@@ -16,15 +16,17 @@ final class Server: ConnectionDelegate {
 
     let port: UInt16
     let bindHost: String?
+    let routeMode: StaticFileServer.RouteMode
     private let queue = DispatchQueue(label: "vibecast.server", attributes: .concurrent)
     private var listener: NWListener?
     private let staticServer: StaticFileServer
     private var connections: [UUID: Connection] = [:]
     private let lock = NSLock()
 
-    init(port: UInt16, bindHost: String?, staticServer: StaticFileServer) {
+    init(port: UInt16, bindHost: String?, staticServer: StaticFileServer, routeMode: StaticFileServer.RouteMode = .all) {
         self.port = port
         self.bindHost = bindHost
+        self.routeMode = routeMode
         self.staticServer = staticServer
     }
 
@@ -60,7 +62,7 @@ final class Server: ConnectionDelegate {
     }
 
     private func accept(_ nw: NWConnection) {
-        let conn = Connection(nw, staticServer: staticServer, queue: queue)
+        let conn = Connection(nw, staticServer: staticServer, routeMode: routeMode, queue: queue)
         conn.delegate = self
         lock.lock()
         connections[conn.id] = conn

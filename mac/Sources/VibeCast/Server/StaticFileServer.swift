@@ -24,10 +24,17 @@ struct StaticFileServer {
         self.webRoot = webRoot
     }
 
+    enum RouteMode {
+        case all
+        case phone
+        case config
+    }
+
     /// 解析请求路径到文件数据 + MIME。找不到返回 nil。
-    func resolve(path: String) -> (data: Data, contentType: String)? {
+    func resolve(path: String, mode: RouteMode = .all) -> (data: Data, contentType: String)? {
         var rel = path
         if rel == "/" { rel = "/index.html" }
+        guard allows(rel, mode: mode) else { return nil }
         // 去掉前导斜杠并规整。
         let cleaned = rel.hasPrefix("/") ? String(rel.dropFirst()) : rel
 
@@ -39,5 +46,16 @@ struct StaticFileServer {
         }
         guard let data = try? Data(contentsOf: candidate) else { return nil }
         return (data, HTTPResponse.mimeType(forPath: candidate.lastPathComponent))
+    }
+
+    private func allows(_ path: String, mode: RouteMode) -> Bool {
+        switch mode {
+        case .all:
+            return true
+        case .phone:
+            return path != "/config.html"
+        case .config:
+            return path != "/index.html"
+        }
     }
 }

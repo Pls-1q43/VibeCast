@@ -125,7 +125,7 @@ function handle(m: ServerMessage) {
       render();
       if (awaitingNetworkSave) {
         awaitingNetworkSave = false;
-        redirectToNetworkUrl(m.accessUrl ?? null);
+        setStatus(i18n.t("cfg.networkSaved"));
       }
       break;
     case "network_interfaces":
@@ -835,18 +835,6 @@ function updatePortStatus(): void {
         : i18n.t("cfg.portUnavailable");
   el.textContent = portStatus.message ? `${label}: ${portStatus.message}` : label;
   el.dataset.tone = portStatus.status === "available" ? "ok" : "warn";
-}
-
-function redirectToNetworkUrl(accessUrl: string | null): void {
-  if (!accessUrl) return;
-  const next = new URL(accessUrl);
-  next.pathname = "/config.html";
-  const current = new URL(location.href);
-  if (next.host === current.host && next.pathname === current.pathname) return;
-  setStatus(i18n.t("cfg.networkSavedRedirect"));
-  window.setTimeout(() => {
-    location.href = next.toString();
-  }, 600);
 }
 
 function cssEscape(value: string): string {
