@@ -360,7 +360,7 @@ export class App {
     const card = this.cards.get(targetId);
     if (!card) return;
 
-    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    if (!navigator.mediaDevices?.getUserMedia) {
       card.setStatus("sync_failed", this.i18n.t("voice.errorSecureContext"));
       return;
     }
