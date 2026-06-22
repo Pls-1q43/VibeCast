@@ -175,6 +175,10 @@ struct InstallVirtualMicMessage: Codable, Sendable {
     let type: String
 }
 
+struct BindShanDianShuoMicMessage: Codable, Sendable {
+    let type: String
+}
+
 // 配置相关（手机配置页 → Mac）
 struct GetConfigMessage: Codable, Sendable {
     let type: String
@@ -298,6 +302,10 @@ struct VoiceEnvironmentMessage: Codable, Sendable {
     let defaultInputMatches: Bool
     let canAutoSwitch: Bool
     let message: String?
+    let shandianshuoInstalled: Bool?
+    let shandianshuoAudioDevice: String?
+    let shandianshuoMatchesVirtualMic: Bool?
+    let shandianshuoMessage: String?
 }
 
 struct ErrorMessage: Codable, Sendable {

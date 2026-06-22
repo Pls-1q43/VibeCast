@@ -19,23 +19,60 @@ enum VoiceAudioDeviceManager {
         let device = preferredVoiceDevice()
         let defaultInput = defaultInputDevice()
         let defaultMatches = device != nil && defaultInput == device?.id
+        let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device?.name)
         return VoiceEnvironmentMessage(installed: device != nil,
                                        deviceName: device?.name,
                                        defaultInputMatches: defaultMatches,
                                        canAutoSwitch: device != nil && isDefaultInputSettable(),
-                                       message: device == nil ? "未检测到 VibeCast Virtual Mic 或 BlackHole 2ch" : nil)
+                                       message: device == nil ? "未检测到 VibeCast Virtual Mic 或 BlackHole 2ch" : nil,
+                                       shandianshuoInstalled: shandianshuo.installed,
+                                       shandianshuoAudioDevice: shandianshuo.audioDevice,
+                                       shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
+                                       shandianshuoMessage: shandianshuo.message)
     }
 
     static func installVirtualMic() -> VoiceEnvironmentMessage {
         if let device = preferredVoiceDevice() {
+            let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device.name)
             return VoiceEnvironmentMessage(installed: true, deviceName: device.name,
                                            defaultInputMatches: defaultInputDevice() == device.id,
                                            canAutoSwitch: isDefaultInputSettable(),
-                                           message: "已检测到可用虚拟麦克风")
+                                           message: "已检测到可用虚拟麦克风",
+                                           shandianshuoInstalled: shandianshuo.installed,
+                                           shandianshuoAudioDevice: shandianshuo.audioDevice,
+                                           shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
+                                           shandianshuoMessage: shandianshuo.message)
         }
+        let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: nil)
         return VoiceEnvironmentMessage(installed: false, deviceName: nil,
                                        defaultInputMatches: false, canAutoSwitch: false,
-                                       message: "当前实验版需要 VibeCast Virtual Mic HAL 插件或 BlackHole 2ch；未找到可安装的内置驱动包")
+                                       message: "当前实验版需要 VibeCast Virtual Mic HAL 插件或 BlackHole 2ch；未找到可安装的内置驱动包",
+                                       shandianshuoInstalled: shandianshuo.installed,
+                                       shandianshuoAudioDevice: shandianshuo.audioDevice,
+                                       shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
+                                       shandianshuoMessage: shandianshuo.message)
+    }
+
+    static func bindShanDianShuoToVirtualMic() -> VoiceEnvironmentMessage {
+        guard let device = preferredVoiceDevice() else {
+            let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: nil)
+            return VoiceEnvironmentMessage(installed: false, deviceName: nil,
+                                           defaultInputMatches: false, canAutoSwitch: false,
+                                           message: "未检测到 VibeCast Virtual Mic 或 BlackHole 2ch",
+                                           shandianshuoInstalled: shandianshuo.installed,
+                                           shandianshuoAudioDevice: shandianshuo.audioDevice,
+                                           shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
+                                           shandianshuoMessage: shandianshuo.message)
+        }
+        let shandianshuo = ShanDianShuoVoiceBridge.bindToVirtualMic(device.name)
+        return VoiceEnvironmentMessage(installed: true, deviceName: device.name,
+                                       defaultInputMatches: defaultInputDevice() == device.id,
+                                       canAutoSwitch: isDefaultInputSettable(),
+                                       message: "已检测到可用虚拟麦克风",
+                                       shandianshuoInstalled: shandianshuo.installed,
+                                       shandianshuoAudioDevice: shandianshuo.audioDevice,
+                                       shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
+                                       shandianshuoMessage: shandianshuo.message)
     }
 
     static func preferredVoiceDevice() -> VoiceAudioDevice? {

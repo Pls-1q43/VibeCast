@@ -125,6 +125,7 @@ export type ClientMessage =
   | CheckPortMessage
   | GetVoiceEnvironmentMessage
   | InstallVirtualMicMessage
+  | BindShanDianShuoMicMessage
   | OpenAccessibilitySettingsMessage
   | CreateTargetMessage
   | DeleteTargetMessage
@@ -274,6 +275,9 @@ export interface GetVoiceEnvironmentMessage {
 export interface InstallVirtualMicMessage {
   type: "install_virtual_mic";
 }
+export interface BindShanDianShuoMicMessage {
+  type: "bind_shandianshuo_mic";
+}
 export interface OpenAccessibilitySettingsMessage {
   type: "open_accessibility_settings";
 }
@@ -354,6 +358,10 @@ export interface VoiceEnvironmentMessage {
   defaultInputMatches: boolean;
   canAutoSwitch: boolean;
   message?: string | null;
+  shandianshuoInstalled?: boolean | null;
+  shandianshuoAudioDevice?: string | null;
+  shandianshuoMatchesVirtualMic?: boolean | null;
+  shandianshuoMessage?: string | null;
 }
 
 export type ServerMessage =

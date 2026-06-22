@@ -142,6 +142,8 @@ final class SessionManager: ServerDelegate {
             handleGetVoiceEnvironment(conn)
         case "install_virtual_mic":
             handleInstallVirtualMic(conn)
+        case "bind_shandianshuo_mic":
+            handleBindShanDianShuoMic(conn)
         case "get_config":
             handleGetConfig(conn)
         case "set_config":
@@ -843,6 +845,12 @@ final class SessionManager: ServerDelegate {
     private func handleInstallVirtualMic(_ conn: Connection) {
         let result = VoiceAudioDeviceManager.installVirtualMic()
         delegate?.sessionDidLog("voice_environment installed=\(result.installed) device=\(result.deviceName ?? "<none>")")
+        send(conn, result)
+    }
+
+    private func handleBindShanDianShuoMic(_ conn: Connection) {
+        let result = VoiceAudioDeviceManager.bindShanDianShuoToVirtualMic()
+        delegate?.sessionDidLog("shandianshuo_mic bound=\(result.shandianshuoMatchesVirtualMic == true) device=\(result.shandianshuoAudioDevice ?? "<none>")")
         send(conn, result)
     }
 

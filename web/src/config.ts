@@ -423,6 +423,26 @@ function renderVoiceEnvironment(): HTMLElement {
       ].filter(Boolean).join(" · ")
     : i18n.t("cfg.loading");
 
+  const shandianshuoOk = voiceEnvironment?.shandianshuoMatchesVirtualMic === true;
+  const shandianshuoInstalled = voiceEnvironment?.shandianshuoInstalled === true;
+  const shandianshuoStatus = el("div", shandianshuoOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+  shandianshuoStatus.textContent = shandianshuoOk
+    ? i18n.t("cfg.shandianshuoBound")
+    : shandianshuoInstalled
+      ? i18n.t("cfg.shandianshuoNeedsBind")
+      : i18n.t("cfg.shandianshuoMissing");
+
+  const shandianshuoDetail = document.createElement("p");
+  shandianshuoDetail.className = "cfg-hint";
+  shandianshuoDetail.textContent = voiceEnvironment
+    ? [
+        voiceEnvironment.shandianshuoAudioDevice
+          ? i18n.t("cfg.shandianshuoAudioDevice", { device: voiceEnvironment.shandianshuoAudioDevice })
+          : "",
+        voiceEnvironment.shandianshuoMessage ?? "",
+      ].filter(Boolean).join(" · ")
+    : i18n.t("cfg.loading");
+
   const currentShortcut = currentGlobalVoiceShortcut();
   const keyInput = input(currentShortcut.key, "right_command");
   const modsInput = input(currentShortcut.modifiers.join(","), "command, option, control, shift");
@@ -460,11 +480,15 @@ function renderVoiceEnvironment(): HTMLElement {
       send({ type: "install_virtual_mic" });
       setStatus(i18n.t("cfg.installingVoice"));
     }),
+    button(i18n.t("cfg.bindShanDianShuoMic"), shandianshuoOk ? "btn btn--ghost" : "btn btn--primary", () => {
+      send({ type: "bind_shandianshuo_mic" });
+      setStatus(i18n.t("cfg.bindingShanDianShuoMic"));
+    }),
     button(i18n.t("cfg.saveVoiceShortcut"), "btn btn--primary", () => {
       saveGlobalVoiceShortcut({ modifiers: splitList(modsInput.value), key: keyInput.value || "right_command" });
     }),
   );
-  section.append(title, hint, status, detail, controls, actions);
+  section.append(title, hint, status, detail, shandianshuoStatus, shandianshuoDetail, controls, actions);
   return section;
 }
 

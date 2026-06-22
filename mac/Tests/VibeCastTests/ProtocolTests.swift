@@ -96,12 +96,18 @@ final class ProtocolTests: XCTestCase {
     func testVoiceEnvironmentEncode() throws {
         let env = VoiceEnvironmentMessage(installed: true, deviceName: "BlackHole 2ch",
                                           defaultInputMatches: false, canAutoSwitch: true,
-                                          message: nil)
+                                          message: nil,
+                                          shandianshuoInstalled: true,
+                                          shandianshuoAudioDevice: "BlackHole 2ch",
+                                          shandianshuoMatchesVirtualMic: true,
+                                          shandianshuoMessage: nil)
         let data = try ProtocolCodec.encode(env)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(obj["type"] as? String, "voice_environment")
         XCTAssertEqual(obj["installed"] as? Bool, true)
         XCTAssertEqual(obj["deviceName"] as? String, "BlackHole 2ch")
         XCTAssertEqual(obj["canAutoSwitch"] as? Bool, true)
+        XCTAssertEqual(obj["shandianshuoAudioDevice"] as? String, "BlackHole 2ch")
+        XCTAssertEqual(obj["shandianshuoMatchesVirtualMic"] as? Bool, true)
     }
 }
