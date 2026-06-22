@@ -20,6 +20,21 @@ export class VoiceRecorder {
 
   constructor(private opts: VoiceRecorderOptions) {}
 
+  static isSupported(): boolean {
+    return Boolean(mediaDevicesGetUserMedia() || legacyGetUserMedia());
+  }
+
+  static diagnostics(): string {
+    return [
+      `origin=${location.origin}`,
+      `secure=${window.isSecureContext ? "yes" : "no"}`,
+      `mediaDevices=${navigator.mediaDevices ? "yes" : "no"}`,
+      `getUserMedia=${mediaDevicesGetUserMedia() ? "yes" : "no"}`,
+      `legacy=${legacyGetUserMediaName()}`,
+      `ua=${navigator.userAgent}`,
+    ].join("; ");
+  }
+
   get isRecording(): boolean {
     return this.started;
   }
@@ -28,10 +43,7 @@ export class VoiceRecorder {
     if (this.started && this.audioContext) return this.audioContext.sampleRate;
     this.sequence = 0;
     try {
-      if (!navigator.mediaDevices?.getUserMedia) {
-        throw new Error("Microphone capture is unavailable in this browser context");
-      }
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      this.stream = await requestUserMedia({
         audio: {
           echoCancellation: false,
           noiseSuppression: false,
@@ -94,4 +106,41 @@ function int16ToBase64(pcm: Int16Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
   }
   return btoa(binary);
+}
+
+type LegacyNavigator = Navigator & {
+  getUserMedia?: (constraints: MediaStreamConstraints, success: (stream: MediaStream) => void, error: (err: unknown) => void) => void;
+  webkitGetUserMedia?: (constraints: MediaStreamConstraints, success: (stream: MediaStream) => void, error: (err: unknown) => void) => void;
+  mozGetUserMedia?: (constraints: MediaStreamConstraints, success: (stream: MediaStream) => void, error: (err: unknown) => void) => void;
+};
+
+async function requestUserMedia(constraints: MediaStreamConstraints): Promise<MediaStream> {
+  const modern = mediaDevicesGetUserMedia();
+  if (modern) return modern.call(navigator.mediaDevices, constraints);
+
+  const legacy = legacyGetUserMedia();
+  if (legacy) {
+    return new Promise((resolve, reject) => {
+      legacy.call(navigator, constraints, resolve, reject);
+    });
+  }
+
+  throw new Error(`Microphone capture is unavailable (${VoiceRecorder.diagnostics()})`);
+}
+
+function mediaDevicesGetUserMedia(): typeof navigator.mediaDevices.getUserMedia | null {
+  return navigator.mediaDevices?.getUserMedia ?? null;
+}
+
+function legacyGetUserMedia(): LegacyNavigator["getUserMedia"] {
+  const nav = navigator as LegacyNavigator;
+  return nav.getUserMedia ?? nav.webkitGetUserMedia ?? nav.mozGetUserMedia;
+}
+
+function legacyGetUserMediaName(): string {
+  const nav = navigator as LegacyNavigator;
+  if (nav.getUserMedia) return "getUserMedia";
+  if (nav.webkitGetUserMedia) return "webkitGetUserMedia";
+  if (nav.mozGetUserMedia) return "mozGetUserMedia";
+  return "no";
 }

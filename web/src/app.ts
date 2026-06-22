@@ -360,8 +360,8 @@ export class App {
     const card = this.cards.get(targetId);
     if (!card) return;
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      card.setStatus("sync_failed", this.i18n.t("voice.errorSecureContext"));
+    if (!VoiceRecorder.isSupported()) {
+      card.setStatus("sync_failed", this.i18n.t("voice.errorCaptureUnavailable", { details: VoiceRecorder.diagnostics() }));
       return;
     }
 
