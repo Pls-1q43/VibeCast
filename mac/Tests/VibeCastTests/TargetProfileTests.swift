@@ -126,7 +126,7 @@ final class TargetProfileTests: XCTestCase {
                                           triggerMode: .hold,
                                           shortcut: .fn,
                                           managedOriginalAudioDevice: "MacBook Pro Microphone",
-                                          managedVirtualAudioDevice: "VibeCast Virtual Mic")
+                                          managedVirtualAudioDevice: "BlackHole 2ch")
 
         store.updateVoiceRelaySettings(settings)
 

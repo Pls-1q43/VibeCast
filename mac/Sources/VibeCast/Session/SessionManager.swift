@@ -409,8 +409,8 @@ final class SessionManager: ServerDelegate {
             return
         }
         guard let device = VoiceAudioDeviceManager.dedicatedVoiceDevice() else {
-            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
-                                         state: "error", message: "未检测到 VibeCast Virtual Mic，请先在配置页开启语音投递模式并完成安装",
+                    send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "未检测到 BlackHole 2ch，请先在配置页开启语音投递模式并完成安装",
                                          receivedBytes: nil))
             return
         }
@@ -914,7 +914,7 @@ final class SessionManager: ServerDelegate {
 
         if VoiceAudioDeviceManager.dedicatedVoiceDevice() == nil {
             let env = VoiceAudioDeviceManager.installVirtualMic(settings: next)
-            guard env.installed && env.dedicatedInstalled else {
+            guard env.installed else {
                 next.enabled = false
                 next.managedOriginalAudioDevice = nil
                 next.managedVirtualAudioDevice = nil

@@ -101,13 +101,13 @@ final class ProtocolTests: XCTestCase {
                                           provider: .shandianshuo,
                                           triggerMode: .toggle,
                                           shortcut: .rightCommand,
-                                          installed: true, deviceName: "VibeCast Virtual Mic",
-                                          dedicatedInstalled: true,
-                                          usingCompatibilityDevice: false,
+                                          installed: true, deviceName: "BlackHole 2ch",
+                                          dedicatedInstalled: false,
+                                          usingCompatibilityDevice: true,
                                           defaultInputMatches: false, canAutoSwitch: true,
                                           message: nil,
                                           shandianshuoInstalled: true,
-                                          shandianshuoAudioDevice: "VibeCast Virtual Mic",
+                                          shandianshuoAudioDevice: "BlackHole 2ch",
                                           shandianshuoMatchesVirtualMic: true,
                                           shandianshuoMessage: nil)
         let data = try ProtocolCodec.encode(env)
@@ -117,11 +117,11 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(obj["provider"] as? String, "shandianshuo")
         XCTAssertEqual(obj["triggerMode"] as? String, "toggle")
         XCTAssertEqual(obj["installed"] as? Bool, true)
-        XCTAssertEqual(obj["deviceName"] as? String, "VibeCast Virtual Mic")
-        XCTAssertEqual(obj["dedicatedInstalled"] as? Bool, true)
-        XCTAssertEqual(obj["usingCompatibilityDevice"] as? Bool, false)
+        XCTAssertEqual(obj["deviceName"] as? String, "BlackHole 2ch")
+        XCTAssertEqual(obj["dedicatedInstalled"] as? Bool, false)
+        XCTAssertEqual(obj["usingCompatibilityDevice"] as? Bool, true)
         XCTAssertEqual(obj["canAutoSwitch"] as? Bool, true)
-        XCTAssertEqual(obj["shandianshuoAudioDevice"] as? String, "VibeCast Virtual Mic")
+        XCTAssertEqual(obj["shandianshuoAudioDevice"] as? String, "BlackHole 2ch")
         XCTAssertEqual(obj["shandianshuoMatchesVirtualMic"] as? Bool, true)
     }
 

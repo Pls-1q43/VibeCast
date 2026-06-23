@@ -8,7 +8,7 @@ final class ShanDianShuoVoiceBridgeTests: XCTestCase {
         let config = dir.appendingPathComponent("config.json")
         try #"{"audio_device":"system","language":"zh"}"#.data(using: .utf8)!.write(to: config)
 
-        let status = ShanDianShuoVoiceBridge.status(virtualDeviceName: "VibeCast Virtual Mic", configURL: config)
+        let status = ShanDianShuoVoiceBridge.status(virtualDeviceName: "BlackHole 2ch", configURL: config)
 
         XCTAssertTrue(status.installed)
         XCTAssertEqual(status.audioDevice, "system")
@@ -20,23 +20,23 @@ final class ShanDianShuoVoiceBridgeTests: XCTestCase {
         let config = dir.appendingPathComponent("config.json")
         try #"{"audio_device":"system","language":"zh"}"#.data(using: .utf8)!.write(to: config)
 
-        let status = ShanDianShuoVoiceBridge.bindToVirtualMic("VibeCast Virtual Mic", configURL: config)
+        let status = ShanDianShuoVoiceBridge.bindToVirtualMic("BlackHole 2ch", configURL: config)
 
         XCTAssertTrue(status.matchesVirtualMic)
         XCTAssertEqual(status.originalAudioDevice, "system")
         let data = try Data(contentsOf: config)
         let root = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        XCTAssertEqual(root["audio_device"] as? String, "VibeCast Virtual Mic")
+        XCTAssertEqual(root["audio_device"] as? String, "BlackHole 2ch")
         XCTAssertEqual(root["language"] as? String, "zh")
     }
 
     func testRestoreOnlyWhenCurrentDeviceIsManagedVirtualMic() throws {
         let dir = try makeTempDir()
         let config = dir.appendingPathComponent("config.json")
-        try #"{"audio_device":"VibeCast Virtual Mic","language":"zh"}"#.data(using: .utf8)!.write(to: config)
+        try #"{"audio_device":"BlackHole 2ch","language":"zh"}"#.data(using: .utf8)!.write(to: config)
 
         XCTAssertTrue(ShanDianShuoVoiceBridge.restoreIfManaged(originalAudioDevice: "system",
-                                                               virtualAudioDevice: "VibeCast Virtual Mic",
+                                                               virtualAudioDevice: "BlackHole 2ch",
                                                                configURL: config))
         var data = try Data(contentsOf: config)
         var root = try JSONSerialization.jsonObject(with: data) as! [String: Any]
@@ -46,7 +46,7 @@ final class ShanDianShuoVoiceBridgeTests: XCTestCase {
         data = try JSONSerialization.data(withJSONObject: root)
         try data.write(to: config)
         XCTAssertFalse(ShanDianShuoVoiceBridge.restoreIfManaged(originalAudioDevice: "system",
-                                                                virtualAudioDevice: "VibeCast Virtual Mic",
+                                                                virtualAudioDevice: "BlackHole 2ch",
                                                                 configURL: config))
         data = try Data(contentsOf: config)
         root = try JSONSerialization.jsonObject(with: data) as! [String: Any]

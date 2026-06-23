@@ -430,6 +430,10 @@ function renderVoiceEnvironment(): HTMLElement {
   toggleHint.textContent = voiceSettings.enabled ? i18n.t("cfg.voiceRelayOn") : i18n.t("cfg.voiceRelayOff");
   toggleText.append(toggleTitle, toggleHint);
   const toggle = checkbox(voiceSettings.enabled, (enabled) => {
+    if (enabled && voiceEnvironment && !voiceEnvironment.installed && !window.confirm(i18n.t("cfg.blackHoleInstallConfirm"))) {
+      render();
+      return;
+    }
     const next = normalizeVoiceSettings({ ...voiceSettings, enabled });
     send({ type: "set_voice_settings", settings: next });
     setStatus(enabled ? i18n.t("cfg.installingVoice") : i18n.t("cfg.voiceDisabling"));
@@ -452,7 +456,7 @@ function renderVoiceEnvironment(): HTMLElement {
 
   const status = el("div", voiceEnvironment?.installed ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
   status.textContent = voiceEnvironment?.installed
-    ? i18n.t("cfg.voiceInstalled", { name: voiceEnvironment.deviceName ?? "VibeCast Virtual Mic" })
+    ? i18n.t("cfg.voiceInstalled", { name: voiceEnvironment.deviceName ?? "BlackHole 2ch" })
     : i18n.t("cfg.voiceMissing");
 
   const detail = document.createElement("p");

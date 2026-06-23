@@ -14,13 +14,10 @@ BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"
 SWIFT_ARCHS="${SWIFT_ARCHS:-arm64 x86_64}"
 APPCAST_URL="${APPCAST_URL:-https://pls-1q43.github.io/VibeCast/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-IqzH3LOJYajczC0ywxHO2dd+P8rVjAZKru+JZ4H1oLM=}"
-REQUIRE_SIGNED_DRIVER="${REQUIRE_SIGNED_DRIVER:-0}"
 ZIP="$DIST/VibeCast-$VERSION-macos.zip"
 WEB_RES="$MAC/Sources/VibeCast/Resources/web"
 APP_ICON="$MAC/Sources/VibeCast/Resources/AppIcon.icns"
 STATUS_BAR_ICON="$MAC/Sources/VibeCast/Resources/StatusBarIconTemplate.png"
-DRIVER_SRC="$ROOT/driver/VibeCastVirtualMic"
-DRIVER_BUNDLE="$STAGING_DIR/VibeCastVirtualMic.driver"
 BACKUP_DIR="$(mktemp -d)"
 
 restore_web_resources() {
@@ -103,24 +100,9 @@ verify_binary_archs() {
   echo "    架构: $(lipo -archs "$binary")"
 }
 
-verify_driver_signing_policy() {
-  local driver="$1"
-  local signature
-  signature="$(codesign -dv --verbose=4 "$driver" 2>&1 || true)"
-  if grep -q "Signature=adhoc" <<<"$signature"; then
-    echo "警告：VibeCastVirtualMic.driver 当前为 ad-hoc 签名；SIP 开启的 macOS 不会加载这种 HAL 虚拟麦克风。"
-    echo "      发布包请设置 CODESIGN_IDENTITY='Developer ID Application: ...' 并完成公证。"
-    if [ "$REQUIRE_SIGNED_DRIVER" = "1" ]; then
-      echo "REQUIRE_SIGNED_DRIVER=1，拒绝生成不可发布的虚拟麦克风包。"
-      return 1
-    fi
-  fi
-}
-
 need_cmd node
 need_cmd npm
 need_cmd swift
-need_cmd clang
 need_cmd ditto
 need_cmd lipo
 
@@ -161,22 +143,6 @@ BIN="$BIN_DIR/VibeCast"
 [ -x "$BIN" ] || { echo "未找到可执行文件 $BIN"; exit 1; }
 verify_binary_archs "$BIN"
 
-echo "==> 构建 VibeCast 专属虚拟麦克风驱动"
-[ -f "$DRIVER_SRC/VibeCastVirtualMic.c" ] || { echo "缺少虚拟麦克风驱动源码"; exit 1; }
-[ -f "$DRIVER_SRC/Info.plist" ] || { echo "缺少虚拟麦克风 Info.plist"; exit 1; }
-rm -rf "$DRIVER_BUNDLE"
-mkdir -p "$DRIVER_BUNDLE/Contents/MacOS"
-cp "$DRIVER_SRC/Info.plist" "$DRIVER_BUNDLE/Contents/Info.plist"
-DRIVER_ARCH_ARGS=()
-for arch in $SWIFT_ARCHS; do
-  DRIVER_ARCH_ARGS+=(-arch "$arch")
-done
-clang "${DRIVER_ARCH_ARGS[@]}" -dynamiclib -install_name "@rpath/VibeCastVirtualMic" \
-  -framework CoreAudio -framework CoreFoundation \
-  -o "$DRIVER_BUNDLE/Contents/MacOS/VibeCastVirtualMic" \
-  "$DRIVER_SRC/VibeCastVirtualMic.c"
-verify_binary_archs "$DRIVER_BUNDLE/Contents/MacOS/VibeCastVirtualMic"
-
 echo "==> 组装 .app bundle"
 rm -rf "$APP" "$DIST_APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
@@ -191,8 +157,6 @@ fi
 if [ -f "$STATUS_BAR_ICON" ]; then
   cp "$STATUS_BAR_ICON" "$APP/Contents/Resources/StatusBarIconTemplate.png"
 fi
-
-ditto --norsrc "$DRIVER_BUNDLE" "$APP/Contents/Resources/VibeCastVirtualMic.driver"
 
 # SwiftPM 资源 bundle（含前端 web/）
 RES_BUNDLE="$BIN_DIR/VibeCast_VibeCast.bundle"
@@ -257,14 +221,12 @@ if command -v codesign >/dev/null 2>&1; then
     "$SPARKLE_BUNDLE/XPCServices/Installer.xpc" \
     "$SPARKLE_BUNDLE/Updater.app" \
     "$SPARKLE_BUNDLE/Autoupdate" \
-    "$APP/Contents/Frameworks/Sparkle.framework" \
-    "$APP/Contents/Resources/VibeCastVirtualMic.driver"
+    "$APP/Contents/Frameworks/Sparkle.framework"
   do
     if [ -e "$nested" ]; then
       codesign "${CODESIGN_ARGS[@]}" "$nested"
     fi
   done
-  verify_driver_signing_policy "$APP/Contents/Resources/VibeCastVirtualMic.driver"
 
   APP_CODESIGN_ARGS=("${CODESIGN_ARGS[@]}")
   if [ -z "${CODESIGN_IDENTITY:-}" ]; then

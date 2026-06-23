@@ -12,7 +12,7 @@ struct VoiceAudioDevice: Equatable {
 }
 
 enum VoiceAudioDeviceManager {
-    static let preferredDeviceName = "VibeCast Virtual Mic"
+    static let preferredDeviceName = "BlackHole 2ch"
 
     static func voiceEnvironment(settings: VoiceRelaySettings = .disabled) -> VoiceEnvironmentMessage {
         let device = dedicatedVoiceDevice()
@@ -25,11 +25,11 @@ enum VoiceAudioDeviceManager {
                                        shortcut: settings.shortcut,
                                        installed: device != nil,
                                        deviceName: device?.name,
-                                       dedicatedInstalled: dedicatedVoiceDevice() != nil,
-                                       usingCompatibilityDevice: false,
+                                       dedicatedInstalled: false,
+                                       usingCompatibilityDevice: device != nil,
                                        defaultInputMatches: defaultMatches,
                                        canAutoSwitch: device != nil && isDefaultInputSettable(),
-                                       message: device == nil ? "未检测到 VibeCast Virtual Mic；首次开启语音投递模式时会安装专属虚拟麦克风" : nil,
+                                       message: device == nil ? "未检测到 BlackHole 2ch；首次开启语音投递模式时会下载并安装官方 BlackHole 2ch 虚拟音频驱动" : nil,
                                        shandianshuoInstalled: shandianshuo.installed,
                                        shandianshuoAudioDevice: shandianshuo.audioDevice,
                                        shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
@@ -44,17 +44,17 @@ enum VoiceAudioDeviceManager {
                                            triggerMode: settings.triggerMode,
                                            shortcut: settings.shortcut,
                                            installed: true, deviceName: device.name,
-                                           dedicatedInstalled: true,
-                                           usingCompatibilityDevice: false,
+                                           dedicatedInstalled: false,
+                                           usingCompatibilityDevice: true,
                                            defaultInputMatches: defaultInputDevice() == device.id,
                                            canAutoSwitch: isDefaultInputSettable(),
-                                           message: "已检测到可用虚拟麦克风",
+                                           message: "已检测到 BlackHole 2ch",
                                            shandianshuoInstalled: shandianshuo.installed,
                                            shandianshuoAudioDevice: shandianshuo.audioDevice,
                                            shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
                                            shandianshuoMessage: shandianshuo.message)
         }
-        let install = VoiceVirtualMicInstaller.installBundledDriver()
+        let install = BlackHoleInstaller.install()
         return voiceEnvironment(settings: settings, message: install.message)
     }
 
@@ -69,7 +69,7 @@ enum VoiceAudioDeviceManager {
                                            dedicatedInstalled: false,
                                            usingCompatibilityDevice: false,
                                            defaultInputMatches: false, canAutoSwitch: false,
-                                           message: "未检测到 VibeCast Virtual Mic",
+                                           message: "未检测到 BlackHole 2ch",
                                            shandianshuoInstalled: shandianshuo.installed,
                                            shandianshuoAudioDevice: shandianshuo.audioDevice,
                                            shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
@@ -85,11 +85,11 @@ enum VoiceAudioDeviceManager {
                                        triggerMode: nextSettings.triggerMode,
                                        shortcut: nextSettings.shortcut,
                                        installed: true, deviceName: device.name,
-                                       dedicatedInstalled: dedicatedVoiceDevice() != nil,
-                                       usingCompatibilityDevice: false,
+                                       dedicatedInstalled: false,
+                                       usingCompatibilityDevice: true,
                                        defaultInputMatches: defaultInputDevice() == device.id,
                                        canAutoSwitch: isDefaultInputSettable(),
-                                       message: "已检测到可用虚拟麦克风",
+                                       message: "已检测到 BlackHole 2ch",
                                        shandianshuoInstalled: shandianshuo.installed,
                                        shandianshuoAudioDevice: shandianshuo.audioDevice,
                                        shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
@@ -103,7 +103,10 @@ enum VoiceAudioDeviceManager {
 
     static func dedicatedVoiceDevice() -> VoiceAudioDevice? {
         let devices = allDevices()
-        return devices.first { $0.name == preferredDeviceName && $0.hasInput && $0.hasOutput }
+        return devices.first { device in
+            (device.name == preferredDeviceName || device.uid == "BlackHole2ch_UID" || device.uid == "BlackHole2ch")
+                && device.hasInput && device.hasOutput
+        }
     }
 
     static func allDevices() -> [VoiceAudioDevice] {
@@ -205,7 +208,7 @@ enum VoiceAudioDeviceManager {
                                        installed: base.installed,
                                        deviceName: base.deviceName,
                                        dedicatedInstalled: base.dedicatedInstalled,
-                                       usingCompatibilityDevice: false,
+                                       usingCompatibilityDevice: base.usingCompatibilityDevice,
                                        defaultInputMatches: base.defaultInputMatches,
                                        canAutoSwitch: base.canAutoSwitch,
                                        message: message ?? base.message,
@@ -216,38 +219,35 @@ enum VoiceAudioDeviceManager {
     }
 }
 
-enum VoiceVirtualMicInstaller {
+enum BlackHoleInstaller {
     struct InstallResult {
         let installed: Bool
         let message: String
     }
 
-    private static let bundleName = "VibeCastVirtualMic"
-    private static let destinationPath = "/Library/Audio/Plug-Ins/HAL/VibeCastVirtualMic.driver"
+    private static let downloadURL = URL(string: "https://existential.audio/downloads/BlackHole2ch-0.7.0.pkg")!
+    private static let expectedOrigin = "Developer ID Installer: Existential Audio Inc. (Q5C99V536K)"
 
-    static func installBundledDriver() -> InstallResult {
+    static func install() -> InstallResult {
         if VoiceAudioDeviceManager.dedicatedVoiceDevice() != nil {
-            return InstallResult(installed: true, message: "已检测到 VibeCast Virtual Mic")
+            return InstallResult(installed: true, message: "已检测到 BlackHole 2ch")
         }
-        guard let sourceURL = bundledDriverURL() else {
-            return InstallResult(installed: false, message: "未找到内包的 VibeCastVirtualMic.driver，请重新安装 VibeCast")
-        }
-        if let signingBlocker = signingBlockerMessage(for: sourceURL) {
-            return InstallResult(installed: false, message: signingBlocker)
+        let packageURL: URL
+        do {
+            packageURL = try downloadPackage()
+        } catch {
+            return InstallResult(installed: false, message: "无法下载 BlackHole 2ch 安装包：\(error.localizedDescription)。可稍后重试，或先通过 Homebrew 安装 blackhole-2ch。")
         }
 
-        let sourcePath = sourceURL.path
+        let assessment = run("/usr/sbin/spctl", arguments: ["--assess", "--type", "install", "-vv", packageURL.path])
+        guard assessment.contains("accepted"), assessment.contains(expectedOrigin) else {
+            return InstallResult(installed: false, message: "BlackHole 2ch 安装包签名校验失败，已取消安装。校验输出：\(assessment)")
+        }
+
         let command = [
             "set -e",
-            "/bin/mkdir -p /Library/Audio/Plug-Ins/HAL",
-            "/bin/rm -rf \(shellQuote(destinationPath))",
-            "/usr/bin/ditto --norsrc --noextattr --noqtn --noacl \(shellQuote(sourcePath)) \(shellQuote(destinationPath))",
-            "/usr/bin/xattr -cr \(shellQuote(destinationPath)) 2>/dev/null || true",
-            "/usr/sbin/chown -R root:wheel \(shellQuote(destinationPath))",
-            "/bin/chmod -R go-w \(shellQuote(destinationPath))",
-            "/usr/bin/codesign --verify --strict \(shellQuote(destinationPath))",
-            "/bin/test -x \(shellQuote(destinationPath + "/Contents/MacOS/VibeCastVirtualMic"))",
-            "/bin/ls -la \(shellQuote(destinationPath)) \(shellQuote(destinationPath + "/Contents")) \(shellQuote(destinationPath + "/Contents/MacOS"))",
+            "/usr/sbin/installer -pkg \(shellQuote(packageURL.path)) -target /",
+            "/bin/rm -rf /Library/Audio/Plug-Ins/HAL/VibeCastVirtualMic.driver 2>/dev/null || true",
             "/usr/bin/killall coreaudiod 2>/dev/null || true"
         ].joined(separator: "; ")
 
@@ -268,46 +268,28 @@ enum VoiceVirtualMicInstaller {
         let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard process.terminationStatus == 0 else {
-            return InstallResult(installed: false, message: output?.isEmpty == false ? "虚拟麦克风安装失败：\(output!)" : "虚拟麦克风安装已取消或失败")
+            return InstallResult(installed: false, message: output?.isEmpty == false ? "BlackHole 2ch 安装失败：\(output!)" : "BlackHole 2ch 安装已取消或失败")
         }
 
         for _ in 0..<40 {
             if VoiceAudioDeviceManager.dedicatedVoiceDevice() != nil {
-                return InstallResult(installed: true, message: "已安装 VibeCast Virtual Mic")
+                return InstallResult(installed: true, message: "已安装 BlackHole 2ch")
             }
             Thread.sleep(forTimeInterval: 0.25)
         }
-        let destinationExists = FileManager.default.fileExists(atPath: destinationPath)
         let suffix = output?.isEmpty == false ? " 安装输出：\(output!)" : ""
-        return InstallResult(installed: false,
-                             message: destinationExists
-                                ? "已复制虚拟麦克风驱动，但 CoreAudio 尚未加载到 VibeCast Virtual Mic。请确认当前安装包使用 Developer ID 签名；ad-hoc 签名的 HAL 驱动在 SIP 开启时不会被 macOS 加载。\(suffix)"
-                                : "授权完成，但未能在 HAL 目录中找到 VibeCastVirtualMic.driver。\(suffix)")
+        return InstallResult(installed: false, message: "BlackHole 2ch 已安装，但 CoreAudio 尚未枚举到设备。请重启 Mac 后重新检测。\(suffix)")
     }
 
-    private static func signingBlockerMessage(for sourceURL: URL) -> String? {
-        let signature = driverSignatureDescription(at: sourceURL)
-        guard signature.isAdHoc, isSystemIntegrityProtectionEnabled() else { return nil }
-        return "当前 VibeCast 内包的 VibeCast Virtual Mic 是 ad-hoc 开发签名，且本机 SIP 已开启；macOS 不会加载这种 HAL 虚拟麦克风。请使用 Developer ID 签名并公证的发布包，或在构建机设置 CODESIGN_IDENTITY 后重新打包。"
-    }
-
-    private struct DriverSignatureDescription {
-        let isAdHoc: Bool
-        let teamIdentifier: String?
-    }
-
-    private static func driverSignatureDescription(at url: URL) -> DriverSignatureDescription {
-        let output = run("/usr/bin/codesign", arguments: ["-dv", "--verbose=4", url.path])
-        let lines = output.components(separatedBy: .newlines)
-        let isAdHoc = lines.contains { $0.contains("Signature=adhoc") }
-        let teamIdentifier = lines.first { $0.hasPrefix("TeamIdentifier=") }?
-            .replacingOccurrences(of: "TeamIdentifier=", with: "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return DriverSignatureDescription(isAdHoc: isAdHoc, teamIdentifier: teamIdentifier)
-    }
-
-    private static func isSystemIntegrityProtectionEnabled() -> Bool {
-        run("/usr/bin/csrutil", arguments: ["status"]).localizedCaseInsensitiveContains("enabled")
+    private static func downloadPackage() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("VibeCast-BlackHole-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let packageURL = directory.appendingPathComponent("BlackHole2ch.pkg")
+        let result = run("/usr/bin/curl", arguments: ["-L", "--fail", "--silent", "--show-error", "-o", packageURL.path, downloadURL.absoluteString])
+        guard FileManager.default.fileExists(atPath: packageURL.path) else {
+            throw NSError(domain: "VibeCast.BlackHoleInstaller", code: 1, userInfo: [NSLocalizedDescriptionKey: result.isEmpty ? "下载失败" : result])
+        }
+        return packageURL
     }
 
     private static func run(_ executable: String, arguments: [String]) -> String {
@@ -325,14 +307,6 @@ enum VoiceVirtualMicInstaller {
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         return String(data: data, encoding: .utf8) ?? ""
-    }
-
-    private static func bundledDriverURL() -> URL? {
-        let candidates = [
-            Bundle.main.url(forResource: bundleName, withExtension: "driver"),
-            Bundle.module.url(forResource: bundleName, withExtension: "driver")
-        ].compactMap { $0 }
-        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
     }
 
     private static func shellQuote(_ value: String) -> String {
