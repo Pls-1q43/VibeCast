@@ -109,7 +109,11 @@ final class ProtocolTests: XCTestCase {
                                           shandianshuoInstalled: true,
                                           shandianshuoAudioDevice: "BlackHole 2ch",
                                           shandianshuoMatchesVirtualMic: true,
-                                          shandianshuoMessage: nil)
+                                          shandianshuoMessage: nil,
+                                          typelessInstalled: true,
+                                          typelessAudioDevice: "Built-in Microphone",
+                                          typelessMatchesVirtualMic: false,
+                                          typelessMessage: "Typeless 当前未绑定到虚拟麦克风")
         let data = try ProtocolCodec.encode(env)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(obj["type"] as? String, "voice_environment")
@@ -123,6 +127,8 @@ final class ProtocolTests: XCTestCase {
         XCTAssertEqual(obj["canAutoSwitch"] as? Bool, true)
         XCTAssertEqual(obj["shandianshuoAudioDevice"] as? String, "BlackHole 2ch")
         XCTAssertEqual(obj["shandianshuoMatchesVirtualMic"] as? Bool, true)
+        XCTAssertEqual(obj["typelessAudioDevice"] as? String, "Built-in Microphone")
+        XCTAssertEqual(obj["typelessMatchesVirtualMic"] as? Bool, false)
     }
 
     func testVoiceSettingsDecode() throws {

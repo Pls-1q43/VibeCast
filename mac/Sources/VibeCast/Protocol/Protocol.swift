@@ -322,6 +322,10 @@ struct VoiceEnvironmentMessage: Codable, Sendable {
     let shandianshuoAudioDevice: String?
     let shandianshuoMatchesVirtualMic: Bool?
     let shandianshuoMessage: String?
+    let typelessInstalled: Bool?
+    let typelessAudioDevice: String?
+    let typelessMatchesVirtualMic: Bool?
+    let typelessMessage: String?
 }
 
 struct VoiceSettingsMessage: Codable, Sendable {

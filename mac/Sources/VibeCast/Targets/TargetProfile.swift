@@ -65,7 +65,9 @@ enum VoiceInputProvider: String, Codable, Sendable, CaseIterable {
         switch self {
         case .shandianshuo:
             return .rightCommand
-        case .typeless, .wechatInput, .doubaoInput:
+        case .typeless:
+            return .fn
+        case .wechatInput, .doubaoInput:
             return .fn
         case .macosDictation, .custom:
             return .rightOption
@@ -74,9 +76,9 @@ enum VoiceInputProvider: String, Codable, Sendable, CaseIterable {
 
     var defaultTriggerMode: VoiceTriggerMode {
         switch self {
-        case .shandianshuo, .macosDictation, .custom:
+        case .shandianshuo, .typeless, .macosDictation, .custom:
             return .toggle
-        case .typeless, .wechatInput, .doubaoInput:
+        case .wechatInput, .doubaoInput:
             return .hold
         }
     }

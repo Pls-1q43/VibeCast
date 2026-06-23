@@ -19,6 +19,7 @@ enum VoiceAudioDeviceManager {
         let defaultInput = defaultInputDevice()
         let defaultMatches = device != nil && defaultInput == device?.id
         let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device?.name)
+        let typeless = TypelessVoiceBridge.status(virtualDeviceName: device?.name)
         return VoiceEnvironmentMessage(enabled: settings.enabled,
                                        provider: settings.provider,
                                        triggerMode: settings.triggerMode,
@@ -33,12 +34,17 @@ enum VoiceAudioDeviceManager {
                                        shandianshuoInstalled: shandianshuo.installed,
                                        shandianshuoAudioDevice: shandianshuo.audioDevice,
                                        shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
-                                       shandianshuoMessage: shandianshuo.message)
+                                       shandianshuoMessage: shandianshuo.message,
+                                       typelessInstalled: typeless.installed,
+                                       typelessAudioDevice: typeless.audioDevice,
+                                       typelessMatchesVirtualMic: typeless.matchesVirtualMic,
+                                       typelessMessage: typeless.message)
     }
 
     static func installVirtualMic(settings: VoiceRelaySettings = .disabled) -> VoiceEnvironmentMessage {
         if let device = dedicatedVoiceDevice() {
             let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device.name)
+            let typeless = TypelessVoiceBridge.status(virtualDeviceName: device.name)
             return VoiceEnvironmentMessage(enabled: settings.enabled,
                                            provider: settings.provider,
                                            triggerMode: settings.triggerMode,
@@ -52,7 +58,11 @@ enum VoiceAudioDeviceManager {
                                            shandianshuoInstalled: shandianshuo.installed,
                                            shandianshuoAudioDevice: shandianshuo.audioDevice,
                                            shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
-                                           shandianshuoMessage: shandianshuo.message)
+                                           shandianshuoMessage: shandianshuo.message,
+                                           typelessInstalled: typeless.installed,
+                                           typelessAudioDevice: typeless.audioDevice,
+                                           typelessMatchesVirtualMic: typeless.matchesVirtualMic,
+                                           typelessMessage: typeless.message)
         }
         let install = BlackHoleInstaller.install()
         return voiceEnvironment(settings: settings, message: install.message)
@@ -61,6 +71,7 @@ enum VoiceAudioDeviceManager {
     static func bindShanDianShuoToVirtualMic(settings: VoiceRelaySettings = .disabled) -> (VoiceEnvironmentMessage, VoiceRelaySettings) {
         guard let device = dedicatedVoiceDevice() else {
             let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: nil)
+            let typeless = TypelessVoiceBridge.status(virtualDeviceName: nil)
             let env = VoiceEnvironmentMessage(enabled: settings.enabled,
                                            provider: settings.provider,
                                            triggerMode: settings.triggerMode,
@@ -73,10 +84,15 @@ enum VoiceAudioDeviceManager {
                                            shandianshuoInstalled: shandianshuo.installed,
                                            shandianshuoAudioDevice: shandianshuo.audioDevice,
                                            shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
-                                           shandianshuoMessage: shandianshuo.message)
+                                           shandianshuoMessage: shandianshuo.message,
+                                           typelessInstalled: typeless.installed,
+                                           typelessAudioDevice: typeless.audioDevice,
+                                           typelessMatchesVirtualMic: typeless.matchesVirtualMic,
+                                           typelessMessage: typeless.message)
             return (env, settings)
         }
         let shandianshuo = ShanDianShuoVoiceBridge.bindToVirtualMic(device.name, originalAudioDevice: settings.managedOriginalAudioDevice)
+        let typeless = TypelessVoiceBridge.status(virtualDeviceName: device.name)
         var nextSettings = settings
         nextSettings.managedOriginalAudioDevice = shandianshuo.originalAudioDevice ?? settings.managedOriginalAudioDevice
         nextSettings.managedVirtualAudioDevice = device.name
@@ -93,7 +109,60 @@ enum VoiceAudioDeviceManager {
                                        shandianshuoInstalled: shandianshuo.installed,
                                        shandianshuoAudioDevice: shandianshuo.audioDevice,
                                        shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
-                                       shandianshuoMessage: shandianshuo.message)
+                                       shandianshuoMessage: shandianshuo.message,
+                                       typelessInstalled: typeless.installed,
+                                       typelessAudioDevice: typeless.audioDevice,
+                                       typelessMatchesVirtualMic: typeless.matchesVirtualMic,
+                                       typelessMessage: typeless.message)
+        return (env, nextSettings)
+    }
+
+    static func bindTypelessToVirtualMic(settings: VoiceRelaySettings = .disabled) -> (VoiceEnvironmentMessage, VoiceRelaySettings) {
+        guard let device = dedicatedVoiceDevice() else {
+            let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: nil)
+            let typeless = TypelessVoiceBridge.status(virtualDeviceName: nil)
+            let env = VoiceEnvironmentMessage(enabled: settings.enabled,
+                                              provider: settings.provider,
+                                              triggerMode: settings.triggerMode,
+                                              shortcut: settings.shortcut,
+                                              installed: false, deviceName: nil,
+                                              dedicatedInstalled: false,
+                                              usingCompatibilityDevice: false,
+                                              defaultInputMatches: false, canAutoSwitch: false,
+                                              message: "未检测到 BlackHole 2ch",
+                                              shandianshuoInstalled: shandianshuo.installed,
+                                              shandianshuoAudioDevice: shandianshuo.audioDevice,
+                                              shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
+                                              shandianshuoMessage: shandianshuo.message,
+                                              typelessInstalled: typeless.installed,
+                                              typelessAudioDevice: typeless.audioDevice,
+                                              typelessMatchesVirtualMic: typeless.matchesVirtualMic,
+                                              typelessMessage: typeless.message)
+            return (env, settings)
+        }
+        let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device.name)
+        let typeless = TypelessVoiceBridge.bindToVirtualMic(device.name, originalAudioDevice: settings.managedOriginalAudioDevice)
+        var nextSettings = settings
+        nextSettings.managedOriginalAudioDevice = typeless.originalAudioDevice ?? settings.managedOriginalAudioDevice
+        nextSettings.managedVirtualAudioDevice = device.name
+        let env = VoiceEnvironmentMessage(enabled: nextSettings.enabled,
+                                          provider: nextSettings.provider,
+                                          triggerMode: nextSettings.triggerMode,
+                                          shortcut: nextSettings.shortcut,
+                                          installed: true, deviceName: device.name,
+                                          dedicatedInstalled: false,
+                                          usingCompatibilityDevice: true,
+                                          defaultInputMatches: defaultInputDevice() == device.id,
+                                          canAutoSwitch: isDefaultInputSettable(),
+                                          message: "已检测到 BlackHole 2ch",
+                                          shandianshuoInstalled: shandianshuo.installed,
+                                          shandianshuoAudioDevice: shandianshuo.audioDevice,
+                                          shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
+                                          shandianshuoMessage: shandianshuo.message,
+                                          typelessInstalled: typeless.installed,
+                                          typelessAudioDevice: typeless.audioDevice,
+                                          typelessMatchesVirtualMic: typeless.matchesVirtualMic,
+                                          typelessMessage: typeless.message)
         return (env, nextSettings)
     }
 
@@ -215,7 +284,11 @@ enum VoiceAudioDeviceManager {
                                        shandianshuoInstalled: base.shandianshuoInstalled,
                                        shandianshuoAudioDevice: base.shandianshuoAudioDevice,
                                        shandianshuoMatchesVirtualMic: base.shandianshuoMatchesVirtualMic,
-                                       shandianshuoMessage: base.shandianshuoMessage)
+                                       shandianshuoMessage: base.shandianshuoMessage,
+                                       typelessInstalled: base.typelessInstalled,
+                                       typelessAudioDevice: base.typelessAudioDevice,
+                                       typelessMatchesVirtualMic: base.typelessMatchesVirtualMic,
+                                       typelessMessage: base.typelessMessage)
     }
 }
 

@@ -150,6 +150,8 @@ final class SessionManager: ServerDelegate {
             handleInstallVirtualMic(conn)
         case "bind_shandianshuo_mic":
             handleBindShanDianShuoMic(conn)
+        case "bind_typeless_mic":
+            handleBindTypelessMic(conn)
         case "get_config":
             handleGetConfig(conn)
         case "set_config":
@@ -416,6 +418,10 @@ final class SessionManager: ServerDelegate {
         }
         if settings.provider == .shandianshuo {
             let (env, nextSettings) = VoiceAudioDeviceManager.bindShanDianShuoToVirtualMic(settings: settings)
+            settings = config.updateVoiceRelaySettings(nextSettings)
+            send(conn, env)
+        } else if settings.provider == .typeless {
+            let (env, nextSettings) = VoiceAudioDeviceManager.bindTypelessToVirtualMic(settings: settings)
             settings = config.updateVoiceRelaySettings(nextSettings)
             send(conn, env)
         }
@@ -906,7 +912,7 @@ final class SessionManager: ServerDelegate {
             return
         }
 
-        if next.provider != .shandianshuo || previous.provider != .shandianshuo {
+        if next.provider != previous.provider {
             let restored = restoreManagedVoiceInput(from: previous)
             if restored {
                 next.managedOriginalAudioDevice = nil
@@ -938,6 +944,15 @@ final class SessionManager: ServerDelegate {
             send(conn, VoiceSettingsMessage(settings: next))
             send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
             broadcastVoiceSettings(next, excluding: conn.id)
+        } else if next.provider == .typeless {
+            let (env, boundSettings) = VoiceAudioDeviceManager.bindTypelessToVirtualMic(settings: next)
+            next = boundSettings.normalized()
+            next.enabled = true
+            next = config.updateVoiceRelaySettings(next)
+            delegate?.sessionDidLog("voice_relay enabled provider=\(next.provider.rawValue) key=\(next.shortcut.key) typeless=\(env.typelessMatchesVirtualMic == true)")
+            send(conn, VoiceSettingsMessage(settings: next))
+            send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
+            broadcastVoiceSettings(next, excluding: conn.id)
         } else {
             next.managedOriginalAudioDevice = nil
             next.managedVirtualAudioDevice = nil
@@ -960,6 +975,15 @@ final class SessionManager: ServerDelegate {
         let (result, settings) = VoiceAudioDeviceManager.bindShanDianShuoToVirtualMic(settings: config.voiceRelaySettings)
         let saved = config.updateVoiceRelaySettings(settings)
         delegate?.sessionDidLog("shandianshuo_mic bound=\(result.shandianshuoMatchesVirtualMic == true) device=\(result.shandianshuoAudioDevice ?? "<none>")")
+        send(conn, VoiceSettingsMessage(settings: saved))
+        send(conn, result)
+        broadcastVoiceSettings(saved, excluding: conn.id)
+    }
+
+    private func handleBindTypelessMic(_ conn: Connection) {
+        let (result, settings) = VoiceAudioDeviceManager.bindTypelessToVirtualMic(settings: config.voiceRelaySettings)
+        let saved = config.updateVoiceRelaySettings(settings)
+        delegate?.sessionDidLog("typeless_mic bound=\(result.typelessMatchesVirtualMic == true) device=\(result.typelessAudioDevice ?? "<none>")")
         send(conn, VoiceSettingsMessage(settings: saved))
         send(conn, result)
         broadcastVoiceSettings(saved, excluding: conn.id)
@@ -1024,8 +1048,16 @@ final class SessionManager: ServerDelegate {
 
     @discardableResult
     private func restoreManagedVoiceInput(from settings: VoiceRelaySettings) -> Bool {
-        ShanDianShuoVoiceBridge.restoreIfManaged(originalAudioDevice: settings.managedOriginalAudioDevice,
-                                                 virtualAudioDevice: settings.managedVirtualAudioDevice)
+        switch settings.provider {
+        case .shandianshuo:
+            return ShanDianShuoVoiceBridge.restoreIfManaged(originalAudioDevice: settings.managedOriginalAudioDevice,
+                                                            virtualAudioDevice: settings.managedVirtualAudioDevice)
+        case .typeless:
+            return TypelessVoiceBridge.restoreIfManaged(originalAudioDevice: settings.managedOriginalAudioDevice,
+                                                        virtualAudioDevice: settings.managedVirtualAudioDevice)
+        case .wechatInput, .doubaoInput, .macosDictation, .custom:
+            return false
+        }
     }
 
     // MARK: - 发送辅助

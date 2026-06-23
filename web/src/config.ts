@@ -520,6 +520,17 @@ function renderVoiceEnvironment(): HTMLElement {
     }),
   );
   if (voiceSettings.provider === "shandianshuo") {
+    actions.append(button(i18n.t("cfg.bindShanDianShuoMic"), "btn btn--ghost", () => {
+      send({ type: "bind_shandianshuo_mic" });
+      setStatus(i18n.t("cfg.bindingShanDianShuoMic"));
+    }));
+  } else if (voiceSettings.provider === "typeless") {
+    actions.append(button(i18n.t("cfg.bindTypelessMic"), "btn btn--ghost", () => {
+      send({ type: "bind_typeless_mic" });
+      setStatus(i18n.t("cfg.bindingTypelessMic"));
+    }));
+  }
+  if (voiceSettings.provider === "shandianshuo") {
     const shandianshuoOk = voiceEnvironment?.shandianshuoMatchesVirtualMic === true;
     const shandianshuoInstalled = voiceEnvironment?.shandianshuoInstalled === true;
     const shandianshuoStatus = el("div", shandianshuoOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
@@ -541,6 +552,28 @@ function renderVoiceEnvironment(): HTMLElement {
     section.append(status, detail);
     if (providerSetupHint) section.append(providerSetupHint);
     section.append(shandianshuoStatus, shandianshuoDetail, controls, actions);
+  } else if (voiceSettings.provider === "typeless") {
+    const typelessOk = voiceEnvironment?.typelessMatchesVirtualMic === true;
+    const typelessInstalled = voiceEnvironment?.typelessInstalled === true;
+    const typelessStatus = el("div", typelessOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+    typelessStatus.textContent = typelessOk
+      ? i18n.t("cfg.typelessBound")
+      : typelessInstalled
+        ? i18n.t("cfg.typelessNeedsBind")
+        : i18n.t("cfg.typelessMissing");
+    const typelessDetail = document.createElement("p");
+    typelessDetail.className = "cfg-hint";
+    typelessDetail.textContent = voiceEnvironment
+      ? [
+          voiceEnvironment.typelessAudioDevice
+            ? i18n.t("cfg.typelessAudioDevice", { device: voiceEnvironment.typelessAudioDevice })
+            : "",
+          voiceEnvironment.typelessMessage ?? "",
+        ].filter(Boolean).join(" · ")
+      : i18n.t("cfg.loading");
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(typelessStatus, typelessDetail, controls, actions);
   } else {
     section.append(status, detail);
     if (providerSetupHint) section.append(providerSetupHint);
@@ -994,6 +1027,7 @@ function providerDefaults(provider: VoiceInputProvider): Pick<VoiceRelaySettings
     case "shandianshuo":
       return { triggerMode: "toggle", shortcut: { modifiers: [], key: "right_command" } };
     case "typeless":
+      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "fn" } };
     case "wechat_input":
     case "doubao_input":
       return { triggerMode: "hold", shortcut: { modifiers: [], key: "fn" } };

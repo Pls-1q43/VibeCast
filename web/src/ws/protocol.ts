@@ -152,6 +152,7 @@ export type ClientMessage =
   | SetVoiceSettingsMessage
   | InstallVirtualMicMessage
   | BindShanDianShuoMicMessage
+  | BindTypelessMicMessage
   | OpenAccessibilitySettingsMessage
   | CreateTargetMessage
   | DeleteTargetMessage
@@ -312,6 +313,9 @@ export interface InstallVirtualMicMessage {
 export interface BindShanDianShuoMicMessage {
   type: "bind_shandianshuo_mic";
 }
+export interface BindTypelessMicMessage {
+  type: "bind_typeless_mic";
+}
 export interface OpenAccessibilitySettingsMessage {
   type: "open_accessibility_settings";
 }
@@ -402,6 +406,10 @@ export interface VoiceEnvironmentMessage {
   shandianshuoAudioDevice?: string | null;
   shandianshuoMatchesVirtualMic?: boolean | null;
   shandianshuoMessage?: string | null;
+  typelessInstalled?: boolean | null;
+  typelessAudioDevice?: string | null;
+  typelessMatchesVirtualMic?: boolean | null;
+  typelessMessage?: string | null;
 }
 
 export interface VoiceSettingsMessage {
