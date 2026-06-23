@@ -232,18 +232,22 @@ enum VoiceVirtualMicInstaller {
         guard let sourceURL = bundledDriverURL() else {
             return InstallResult(installed: false, message: "未找到内包的 VibeCastVirtualMic.driver，请重新安装 VibeCast")
         }
+        if let signingBlocker = signingBlockerMessage(for: sourceURL) {
+            return InstallResult(installed: false, message: signingBlocker)
+        }
 
         let sourcePath = sourceURL.path
         let command = [
             "set -e",
             "/bin/mkdir -p /Library/Audio/Plug-Ins/HAL",
             "/bin/rm -rf \(shellQuote(destinationPath))",
-            "/usr/bin/ditto --norsrc \(shellQuote(sourcePath)) \(shellQuote(destinationPath))",
+            "/usr/bin/ditto --norsrc --noextattr --noqtn --noacl \(shellQuote(sourcePath)) \(shellQuote(destinationPath))",
             "/usr/bin/xattr -cr \(shellQuote(destinationPath)) 2>/dev/null || true",
             "/usr/sbin/chown -R root:wheel \(shellQuote(destinationPath))",
             "/bin/chmod -R go-w \(shellQuote(destinationPath))",
             "/usr/bin/codesign --verify --strict \(shellQuote(destinationPath))",
             "/bin/test -x \(shellQuote(destinationPath + "/Contents/MacOS/VibeCastVirtualMic"))",
+            "/bin/ls -la \(shellQuote(destinationPath)) \(shellQuote(destinationPath + "/Contents")) \(shellQuote(destinationPath + "/Contents/MacOS"))",
             "/usr/bin/killall coreaudiod 2>/dev/null || true"
         ].joined(separator: "; ")
 
@@ -277,8 +281,50 @@ enum VoiceVirtualMicInstaller {
         let suffix = output?.isEmpty == false ? " 安装输出：\(output!)" : ""
         return InstallResult(installed: false,
                              message: destinationExists
-                                ? "已复制虚拟麦克风驱动，但 CoreAudio 尚未加载到 VibeCast Virtual Mic；请重启 VibeCast 或 macOS 后再试。\(suffix)"
+                                ? "已复制虚拟麦克风驱动，但 CoreAudio 尚未加载到 VibeCast Virtual Mic。请确认当前安装包使用 Developer ID 签名；ad-hoc 签名的 HAL 驱动在 SIP 开启时不会被 macOS 加载。\(suffix)"
                                 : "授权完成，但未能在 HAL 目录中找到 VibeCastVirtualMic.driver。\(suffix)")
+    }
+
+    private static func signingBlockerMessage(for sourceURL: URL) -> String? {
+        let signature = driverSignatureDescription(at: sourceURL)
+        guard signature.isAdHoc, isSystemIntegrityProtectionEnabled() else { return nil }
+        return "当前 VibeCast 内包的 VibeCast Virtual Mic 是 ad-hoc 开发签名，且本机 SIP 已开启；macOS 不会加载这种 HAL 虚拟麦克风。请使用 Developer ID 签名并公证的发布包，或在构建机设置 CODESIGN_IDENTITY 后重新打包。"
+    }
+
+    private struct DriverSignatureDescription {
+        let isAdHoc: Bool
+        let teamIdentifier: String?
+    }
+
+    private static func driverSignatureDescription(at url: URL) -> DriverSignatureDescription {
+        let output = run("/usr/bin/codesign", arguments: ["-dv", "--verbose=4", url.path])
+        let lines = output.components(separatedBy: .newlines)
+        let isAdHoc = lines.contains { $0.contains("Signature=adhoc") }
+        let teamIdentifier = lines.first { $0.hasPrefix("TeamIdentifier=") }?
+            .replacingOccurrences(of: "TeamIdentifier=", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return DriverSignatureDescription(isAdHoc: isAdHoc, teamIdentifier: teamIdentifier)
+    }
+
+    private static func isSystemIntegrityProtectionEnabled() -> Bool {
+        run("/usr/bin/csrutil", arguments: ["status"]).localizedCaseInsensitiveContains("enabled")
+    }
+
+    private static func run(_ executable: String, arguments: [String]) -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = arguments
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return ""
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
     }
 
     private static func bundledDriverURL() -> URL? {

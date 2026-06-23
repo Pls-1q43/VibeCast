@@ -14,6 +14,7 @@ BUILD_NUMBER="${BUILD_NUMBER:-$VERSION}"
 SWIFT_ARCHS="${SWIFT_ARCHS:-arm64 x86_64}"
 APPCAST_URL="${APPCAST_URL:-https://pls-1q43.github.io/VibeCast/appcast.xml}"
 SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-IqzH3LOJYajczC0ywxHO2dd+P8rVjAZKru+JZ4H1oLM=}"
+REQUIRE_SIGNED_DRIVER="${REQUIRE_SIGNED_DRIVER:-0}"
 ZIP="$DIST/VibeCast-$VERSION-macos.zip"
 WEB_RES="$MAC/Sources/VibeCast/Resources/web"
 APP_ICON="$MAC/Sources/VibeCast/Resources/AppIcon.icns"
@@ -100,6 +101,20 @@ verify_binary_archs() {
   done
   [ "$missing" -eq 0 ] || return 1
   echo "    架构: $(lipo -archs "$binary")"
+}
+
+verify_driver_signing_policy() {
+  local driver="$1"
+  local signature
+  signature="$(codesign -dv --verbose=4 "$driver" 2>&1 || true)"
+  if grep -q "Signature=adhoc" <<<"$signature"; then
+    echo "警告：VibeCastVirtualMic.driver 当前为 ad-hoc 签名；SIP 开启的 macOS 不会加载这种 HAL 虚拟麦克风。"
+    echo "      发布包请设置 CODESIGN_IDENTITY='Developer ID Application: ...' 并完成公证。"
+    if [ "$REQUIRE_SIGNED_DRIVER" = "1" ]; then
+      echo "REQUIRE_SIGNED_DRIVER=1，拒绝生成不可发布的虚拟麦克风包。"
+      return 1
+    fi
+  fi
 }
 
 need_cmd node
@@ -249,6 +264,7 @@ if command -v codesign >/dev/null 2>&1; then
       codesign "${CODESIGN_ARGS[@]}" "$nested"
     fi
   done
+  verify_driver_signing_policy "$APP/Contents/Resources/VibeCastVirtualMic.driver"
 
   APP_CODESIGN_ARGS=("${CODESIGN_ARGS[@]}")
   if [ -z "${CODESIGN_IDENTITY:-}" ]; then
