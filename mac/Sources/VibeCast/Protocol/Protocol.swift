@@ -171,6 +171,15 @@ struct GetVoiceEnvironmentMessage: Codable, Sendable {
     let type: String
 }
 
+struct GetVoiceSettingsMessage: Codable, Sendable {
+    let type: String
+}
+
+struct SetVoiceSettingsMessage: Codable, Sendable {
+    let type: String
+    let settings: VoiceRelaySettings
+}
+
 struct InstallVirtualMicMessage: Codable, Sendable {
     let type: String
 }
@@ -254,6 +263,7 @@ struct HelloAckMessage: Codable, Sendable {
     let protocolVersion: Int
     let targets: [TargetInfo]
     let accessibilityGranted: Bool
+    let voiceRelayEnabled: Bool
 }
 
 struct TargetStatusMessage: Codable, Sendable {
@@ -262,7 +272,7 @@ struct TargetStatusMessage: Codable, Sendable {
     let targetId: TargetId
     let status: TargetStatus
     let errorCode: ErrorCode?
-    let message: String?
+    var message: String?
 }
 
 struct TextAckMessage: Codable, Sendable {
@@ -297,8 +307,14 @@ struct VoiceStateMessage: Codable, Sendable {
 
 struct VoiceEnvironmentMessage: Codable, Sendable {
     var type = "voice_environment"
+    let enabled: Bool
+    let provider: VoiceInputProvider
+    let triggerMode: VoiceTriggerMode
+    let shortcut: KeyShortcut
     let installed: Bool
     let deviceName: String?
+    let dedicatedInstalled: Bool
+    let usingCompatibilityDevice: Bool
     let defaultInputMatches: Bool
     let canAutoSwitch: Bool
     let message: String?
@@ -306,6 +322,11 @@ struct VoiceEnvironmentMessage: Codable, Sendable {
     let shandianshuoAudioDevice: String?
     let shandianshuoMatchesVirtualMic: Bool?
     let shandianshuoMessage: String?
+}
+
+struct VoiceSettingsMessage: Codable, Sendable {
+    var type = "voice_settings"
+    let settings: VoiceRelaySettings
 }
 
 struct ErrorMessage: Codable, Sendable {

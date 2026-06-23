@@ -29,10 +29,13 @@ final class ProtocolTests: XCTestCase {
         let targets = TargetId.presetIds.map {
             TargetInfo(id: $0, displayName: $0.rawValue, available: true, iconDataUrl: "data:image/png;base64,ZmFrZQ==")
         }
-        let ack = HelloAckMessage(serverName: "Mac", protocolVersion: kProtocolVersion, targets: targets, accessibilityGranted: true)
+        let ack = HelloAckMessage(serverName: "Mac", protocolVersion: kProtocolVersion,
+                                  targets: targets, accessibilityGranted: true,
+                                  voiceRelayEnabled: false)
         let data = try ProtocolCodec.encode(ack)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(obj["type"] as? String, "hello_ack")
+        XCTAssertEqual(obj["voiceRelayEnabled"] as? Bool, false)
         XCTAssertEqual((obj["targets"] as? [[String: Any]])?.count, 6)
         let first = (obj["targets"] as! [[String: Any]])[0]
         XCTAssertNotNil(first["clearAfterSend"])
@@ -94,20 +97,44 @@ final class ProtocolTests: XCTestCase {
     }
 
     func testVoiceEnvironmentEncode() throws {
-        let env = VoiceEnvironmentMessage(installed: true, deviceName: "BlackHole 2ch",
+        let env = VoiceEnvironmentMessage(enabled: true,
+                                          provider: .shandianshuo,
+                                          triggerMode: .toggle,
+                                          shortcut: .rightCommand,
+                                          installed: true, deviceName: "VibeCast Virtual Mic",
+                                          dedicatedInstalled: true,
+                                          usingCompatibilityDevice: false,
                                           defaultInputMatches: false, canAutoSwitch: true,
                                           message: nil,
                                           shandianshuoInstalled: true,
-                                          shandianshuoAudioDevice: "BlackHole 2ch",
+                                          shandianshuoAudioDevice: "VibeCast Virtual Mic",
                                           shandianshuoMatchesVirtualMic: true,
                                           shandianshuoMessage: nil)
         let data = try ProtocolCodec.encode(env)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(obj["type"] as? String, "voice_environment")
+        XCTAssertEqual(obj["enabled"] as? Bool, true)
+        XCTAssertEqual(obj["provider"] as? String, "shandianshuo")
+        XCTAssertEqual(obj["triggerMode"] as? String, "toggle")
         XCTAssertEqual(obj["installed"] as? Bool, true)
-        XCTAssertEqual(obj["deviceName"] as? String, "BlackHole 2ch")
+        XCTAssertEqual(obj["deviceName"] as? String, "VibeCast Virtual Mic")
+        XCTAssertEqual(obj["dedicatedInstalled"] as? Bool, true)
+        XCTAssertEqual(obj["usingCompatibilityDevice"] as? Bool, false)
         XCTAssertEqual(obj["canAutoSwitch"] as? Bool, true)
-        XCTAssertEqual(obj["shandianshuoAudioDevice"] as? String, "BlackHole 2ch")
+        XCTAssertEqual(obj["shandianshuoAudioDevice"] as? String, "VibeCast Virtual Mic")
         XCTAssertEqual(obj["shandianshuoMatchesVirtualMic"] as? Bool, true)
+    }
+
+    func testVoiceSettingsDecode() throws {
+        let json = """
+        {"type":"set_voice_settings","settings":{"enabled":true,"provider":"typeless",
+         "triggerMode":"hold","shortcut":{"modifiers":[],"key":"fn"}}}
+        """.data(using: .utf8)!
+        XCTAssertEqual(try ProtocolCodec.messageType(of: json), "set_voice_settings")
+        let msg = try ProtocolCodec.decoder.decode(SetVoiceSettingsMessage.self, from: json)
+        XCTAssertTrue(msg.settings.enabled)
+        XCTAssertEqual(msg.settings.provider, .typeless)
+        XCTAssertEqual(msg.settings.triggerMode, .hold)
+        XCTAssertEqual(msg.settings.shortcut, .fn)
     }
 }

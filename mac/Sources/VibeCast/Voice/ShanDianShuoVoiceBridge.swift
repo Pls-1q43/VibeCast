@@ -5,6 +5,7 @@ struct ShanDianShuoVoiceStatus: Equatable {
     let audioDevice: String?
     let matchesVirtualMic: Bool
     let message: String?
+    let originalAudioDevice: String?
 }
 
 enum ShanDianShuoVoiceBridge {
@@ -16,43 +17,69 @@ enum ShanDianShuoVoiceBridge {
     static func status(virtualDeviceName: String?, configURL: URL = defaultConfigURL) -> ShanDianShuoVoiceStatus {
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             return ShanDianShuoVoiceStatus(installed: false, audioDevice: nil, matchesVirtualMic: false,
-                                          message: "未检测到闪电说配置")
+                                          message: "未检测到闪电说配置", originalAudioDevice: nil)
         }
         guard let audioDevice = readAudioDevice(configURL: configURL) else {
             return ShanDianShuoVoiceStatus(installed: true, audioDevice: nil, matchesVirtualMic: false,
-                                          message: "无法读取闪电说麦克风配置")
+                                          message: "无法读取闪电说麦克风配置", originalAudioDevice: nil)
         }
         guard let virtualDeviceName else {
             return ShanDianShuoVoiceStatus(installed: true, audioDevice: audioDevice, matchesVirtualMic: false,
-                                          message: "需先检测到虚拟麦克风")
+                                          message: "需先检测到虚拟麦克风", originalAudioDevice: nil)
         }
         let matches = audioDevice == virtualDeviceName
         return ShanDianShuoVoiceStatus(installed: true, audioDevice: audioDevice, matchesVirtualMic: matches,
-                                      message: matches ? nil : "闪电说当前未绑定到虚拟麦克风")
+                                      message: matches ? nil : "闪电说当前未绑定到虚拟麦克风",
+                                      originalAudioDevice: nil)
     }
 
     @discardableResult
-    static func bindToVirtualMic(_ deviceName: String, configURL: URL = defaultConfigURL) -> ShanDianShuoVoiceStatus {
+    static func bindToVirtualMic(_ deviceName: String, originalAudioDevice: String? = nil,
+                                 configURL: URL = defaultConfigURL) -> ShanDianShuoVoiceStatus {
         guard FileManager.default.fileExists(atPath: configURL.path) else {
             return ShanDianShuoVoiceStatus(installed: false, audioDevice: nil, matchesVirtualMic: false,
-                                          message: "未检测到闪电说配置")
+                                          message: "未检测到闪电说配置", originalAudioDevice: originalAudioDevice)
         }
         do {
             let data = try Data(contentsOf: configURL)
             guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
                 return ShanDianShuoVoiceStatus(installed: true, audioDevice: nil, matchesVirtualMic: false,
-                                              message: "闪电说配置格式无法识别")
+                                              message: "闪电说配置格式无法识别", originalAudioDevice: originalAudioDevice)
             }
+            let current = root["audio_device"] as? String
             try backupConfigIfNeeded(configURL)
             root["audio_device"] = deviceName
             let next = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try next.write(to: configURL, options: .atomic)
             return ShanDianShuoVoiceStatus(installed: true, audioDevice: deviceName, matchesVirtualMic: true,
-                                          message: "已将闪电说麦克风绑定到 \(deviceName)")
+                                          message: "已将闪电说麦克风绑定到 \(deviceName)",
+                                          originalAudioDevice: originalAudioDevice ?? current)
         } catch {
             return ShanDianShuoVoiceStatus(installed: true, audioDevice: readAudioDevice(configURL: configURL),
                                           matchesVirtualMic: false,
-                                          message: "写入闪电说配置失败：\(error.localizedDescription)")
+                                          message: "写入闪电说配置失败：\(error.localizedDescription)",
+                                          originalAudioDevice: originalAudioDevice)
+        }
+    }
+
+    @discardableResult
+    static func restoreIfManaged(originalAudioDevice: String?, virtualAudioDevice: String?,
+                                 configURL: URL = defaultConfigURL) -> Bool {
+        guard let originalAudioDevice, let virtualAudioDevice,
+              FileManager.default.fileExists(atPath: configURL.path),
+              readAudioDevice(configURL: configURL) == virtualAudioDevice,
+              let data = try? Data(contentsOf: configURL),
+              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return false
+        }
+        do {
+            try backupConfigIfNeeded(configURL)
+            root["audio_device"] = originalAudioDevice
+            let next = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
+            try next.write(to: configURL, options: .atomic)
+            return true
+        } catch {
+            return false
         }
     }
 

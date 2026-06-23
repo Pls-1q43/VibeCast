@@ -116,6 +116,24 @@ final class TargetProfileTests: XCTestCase {
         XCTAssertEqual(decoded.voiceShortcut, .rightOption)
     }
 
+    func testVoiceRelaySettingsPersistInConfigStore() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let file = dir.appendingPathComponent("targets.json")
+        let store = TargetConfigStore(fileURL: file, isBundleInstalled: { _ in false })
+        let settings = VoiceRelaySettings(enabled: true,
+                                          provider: .typeless,
+                                          triggerMode: .hold,
+                                          shortcut: .fn,
+                                          managedOriginalAudioDevice: "MacBook Pro Microphone",
+                                          managedVirtualAudioDevice: "VibeCast Virtual Mic")
+
+        store.updateVoiceRelaySettings(settings)
+
+        let reloaded = TargetConfigStore(fileURL: file, isBundleInstalled: { _ in false })
+        XCTAssertEqual(reloaded.voiceRelaySettings, settings)
+    }
+
     func testNormalizeClampsRiskyValuesAndMigratesLegacyClipboardPaste() {
         var p = TargetProfile.defaultFor(.codex)
         p.displayName = "  "

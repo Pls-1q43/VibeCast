@@ -30,6 +30,7 @@ export class Card {
   private voiceTimer: number | null = null;
   private voicePointerId: number | null = null;
   private voiceActive = false;
+  private readonly placeholderText: string;
 
   constructor(targetId: TargetId, displayName: string, iconDataUrl: string | null | undefined, private i18n: I18n, cb: CardCallbacks) {
     this.targetId = targetId;
@@ -58,7 +59,8 @@ export class Card {
     this.textarea.className = "card__textarea";
     this.textarea.rows = 4;
     this.textarea.setAttribute("aria-labelledby", labelId);
-    this.textarea.placeholder = i18n.t("card.placeholder");
+    this.placeholderText = i18n.t("card.placeholder");
+    this.textarea.placeholder = this.placeholderText;
     this.textarea.autocapitalize = "off";
     this.textarea.spellcheck = false;
     this.textarea.addEventListener("focus", () => cb.onFocusTextarea(targetId));
@@ -171,6 +173,7 @@ export class Card {
     this.textarea.style.height = "auto";
     const compact = this.text.trim().length === 0 && document.activeElement !== this.textarea;
     this.inputWrap.classList.toggle("card__inputwrap--compact", compact);
+    this.textarea.placeholder = compact ? "" : this.placeholderText;
     const minHeight = compact ? 46 : this.textarea.scrollHeight;
     this.textarea.style.height = `${minHeight}px`;
   }

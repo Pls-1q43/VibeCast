@@ -12,6 +12,7 @@ const i18n: I18n = {
 describe("Card", () => {
   afterEach(() => {
     vi.useRealTimers();
+    document.body.innerHTML = "";
   });
 
   it("grows the textarea to fit restored text", () => {
@@ -59,6 +60,18 @@ describe("Card", () => {
     vi.advanceTimersByTime(451);
 
     expect(onVoiceHoldStart).toHaveBeenCalledWith("codex");
+  });
+
+  it("hides textarea placeholder while compact so the voice label does not ghost", () => {
+    const card = makeCard();
+    document.body.append(card.element);
+
+    expect(card.textarea.placeholder).toBe("");
+
+    card.textarea.focus();
+    card.refreshButtons();
+
+    expect(card.textarea.placeholder).toBe("card.placeholder");
   });
 });
 

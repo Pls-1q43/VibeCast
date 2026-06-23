@@ -37,6 +37,7 @@ export class App {
   private targetNames = new Map<TargetId, string>();
   private pendingSends = new Map<TargetId, { sessionId: string; revision: number }>();
   private activeVoice: ActiveVoiceSession | null = null;
+  private voiceRelayEnabled = false;
 
   private connbar!: HTMLElement;
   private cardList!: HTMLElement;
@@ -360,6 +361,11 @@ export class App {
     const card = this.cards.get(targetId);
     if (!card) return;
 
+    if (!this.voiceRelayEnabled) {
+      card.setStatus("sync_failed", this.i18n.t("voice.disabled"));
+      return;
+    }
+
     if (!VoiceRecorder.isSupported()) {
       card.setStatus("sync_failed", this.i18n.t("voice.errorCaptureUnavailable", { details: VoiceRecorder.diagnostics() }));
       return;
@@ -468,6 +474,7 @@ export class App {
     switch (msg.type) {
       case "hello_ack": {
         this.serverName = msg.serverName;
+        this.voiceRelayEnabled = msg.voiceRelayEnabled;
         this.reconcileTargets(msg.targets);
         this.updateConnbar();
         // 重连后恢复活动目标 + 发送最新完整快照（PRD 16.4）。

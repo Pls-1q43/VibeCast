@@ -18,6 +18,8 @@ ZIP="$DIST/VibeCast-$VERSION-macos.zip"
 WEB_RES="$MAC/Sources/VibeCast/Resources/web"
 APP_ICON="$MAC/Sources/VibeCast/Resources/AppIcon.icns"
 STATUS_BAR_ICON="$MAC/Sources/VibeCast/Resources/StatusBarIconTemplate.png"
+DRIVER_SRC="$ROOT/driver/VibeCastVirtualMic"
+DRIVER_BUNDLE="$STAGING_DIR/VibeCastVirtualMic.driver"
 BACKUP_DIR="$(mktemp -d)"
 
 restore_web_resources() {
@@ -103,6 +105,7 @@ verify_binary_archs() {
 need_cmd node
 need_cmd npm
 need_cmd swift
+need_cmd clang
 need_cmd ditto
 need_cmd lipo
 
@@ -143,6 +146,21 @@ BIN="$BIN_DIR/VibeCast"
 [ -x "$BIN" ] || { echo "未找到可执行文件 $BIN"; exit 1; }
 verify_binary_archs "$BIN"
 
+echo "==> 构建 VibeCast 专属虚拟麦克风驱动"
+[ -f "$DRIVER_SRC/VibeCastVirtualMic.c" ] || { echo "缺少虚拟麦克风驱动源码"; exit 1; }
+[ -f "$DRIVER_SRC/Info.plist" ] || { echo "缺少虚拟麦克风 Info.plist"; exit 1; }
+rm -rf "$DRIVER_BUNDLE"
+mkdir -p "$DRIVER_BUNDLE/Contents/MacOS"
+cp "$DRIVER_SRC/Info.plist" "$DRIVER_BUNDLE/Contents/Info.plist"
+DRIVER_ARCH_ARGS=()
+for arch in $SWIFT_ARCHS; do
+  DRIVER_ARCH_ARGS+=(-arch "$arch")
+done
+clang "${DRIVER_ARCH_ARGS[@]}" -dynamiclib -framework CoreAudio -framework CoreFoundation \
+  -o "$DRIVER_BUNDLE/Contents/MacOS/VibeCastVirtualMic" \
+  "$DRIVER_SRC/VibeCastVirtualMic.c"
+verify_binary_archs "$DRIVER_BUNDLE/Contents/MacOS/VibeCastVirtualMic"
+
 echo "==> 组装 .app bundle"
 rm -rf "$APP" "$DIST_APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
@@ -157,6 +175,8 @@ fi
 if [ -f "$STATUS_BAR_ICON" ]; then
   cp "$STATUS_BAR_ICON" "$APP/Contents/Resources/StatusBarIconTemplate.png"
 fi
+
+ditto --norsrc "$DRIVER_BUNDLE" "$APP/Contents/Resources/VibeCastVirtualMic.driver"
 
 # SwiftPM 资源 bundle（含前端 web/）
 RES_BUNDLE="$BIN_DIR/VibeCast_VibeCast.bundle"
@@ -221,7 +241,8 @@ if command -v codesign >/dev/null 2>&1; then
     "$SPARKLE_BUNDLE/XPCServices/Installer.xpc" \
     "$SPARKLE_BUNDLE/Updater.app" \
     "$SPARKLE_BUNDLE/Autoupdate" \
-    "$APP/Contents/Frameworks/Sparkle.framework"
+    "$APP/Contents/Frameworks/Sparkle.framework" \
+    "$APP/Contents/Resources/VibeCastVirtualMic.driver"
   do
     if [ -e "$nested" ]; then
       codesign "${CODESIGN_ARGS[@]}" "$nested"

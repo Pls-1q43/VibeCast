@@ -13,28 +13,39 @@ struct VoiceAudioDevice: Equatable {
 
 enum VoiceAudioDeviceManager {
     static let preferredDeviceName = "VibeCast Virtual Mic"
-    static let compatibleDeviceNames = ["VibeCast Virtual Mic", "BlackHole 2ch"]
 
-    static func voiceEnvironment() -> VoiceEnvironmentMessage {
-        let device = preferredVoiceDevice()
+    static func voiceEnvironment(settings: VoiceRelaySettings = .disabled) -> VoiceEnvironmentMessage {
+        let device = dedicatedVoiceDevice()
         let defaultInput = defaultInputDevice()
         let defaultMatches = device != nil && defaultInput == device?.id
         let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device?.name)
-        return VoiceEnvironmentMessage(installed: device != nil,
+        return VoiceEnvironmentMessage(enabled: settings.enabled,
+                                       provider: settings.provider,
+                                       triggerMode: settings.triggerMode,
+                                       shortcut: settings.shortcut,
+                                       installed: device != nil,
                                        deviceName: device?.name,
+                                       dedicatedInstalled: dedicatedVoiceDevice() != nil,
+                                       usingCompatibilityDevice: false,
                                        defaultInputMatches: defaultMatches,
                                        canAutoSwitch: device != nil && isDefaultInputSettable(),
-                                       message: device == nil ? "未检测到 VibeCast Virtual Mic 或 BlackHole 2ch" : nil,
+                                       message: device == nil ? "未检测到 VibeCast Virtual Mic；首次开启语音投递模式时会安装专属虚拟麦克风" : nil,
                                        shandianshuoInstalled: shandianshuo.installed,
                                        shandianshuoAudioDevice: shandianshuo.audioDevice,
                                        shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
                                        shandianshuoMessage: shandianshuo.message)
     }
 
-    static func installVirtualMic() -> VoiceEnvironmentMessage {
-        if let device = preferredVoiceDevice() {
+    static func installVirtualMic(settings: VoiceRelaySettings = .disabled) -> VoiceEnvironmentMessage {
+        if let device = dedicatedVoiceDevice() {
             let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device.name)
-            return VoiceEnvironmentMessage(installed: true, deviceName: device.name,
+            return VoiceEnvironmentMessage(enabled: settings.enabled,
+                                           provider: settings.provider,
+                                           triggerMode: settings.triggerMode,
+                                           shortcut: settings.shortcut,
+                                           installed: true, deviceName: device.name,
+                                           dedicatedInstalled: true,
+                                           usingCompatibilityDevice: false,
                                            defaultInputMatches: defaultInputDevice() == device.id,
                                            canAutoSwitch: isDefaultInputSettable(),
                                            message: "已检测到可用虚拟麦克风",
@@ -43,29 +54,39 @@ enum VoiceAudioDeviceManager {
                                            shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
                                            shandianshuoMessage: shandianshuo.message)
         }
-        let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: nil)
-        return VoiceEnvironmentMessage(installed: false, deviceName: nil,
-                                       defaultInputMatches: false, canAutoSwitch: false,
-                                       message: "当前实验版需要 VibeCast Virtual Mic HAL 插件或 BlackHole 2ch；未找到可安装的内置驱动包",
-                                       shandianshuoInstalled: shandianshuo.installed,
-                                       shandianshuoAudioDevice: shandianshuo.audioDevice,
-                                       shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
-                                       shandianshuoMessage: shandianshuo.message)
+        let install = VoiceVirtualMicInstaller.installBundledDriver()
+        return voiceEnvironment(settings: settings, message: install.message)
     }
 
-    static func bindShanDianShuoToVirtualMic() -> VoiceEnvironmentMessage {
-        guard let device = preferredVoiceDevice() else {
+    static func bindShanDianShuoToVirtualMic(settings: VoiceRelaySettings = .disabled) -> (VoiceEnvironmentMessage, VoiceRelaySettings) {
+        guard let device = dedicatedVoiceDevice() else {
             let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: nil)
-            return VoiceEnvironmentMessage(installed: false, deviceName: nil,
+            let env = VoiceEnvironmentMessage(enabled: settings.enabled,
+                                           provider: settings.provider,
+                                           triggerMode: settings.triggerMode,
+                                           shortcut: settings.shortcut,
+                                           installed: false, deviceName: nil,
+                                           dedicatedInstalled: false,
+                                           usingCompatibilityDevice: false,
                                            defaultInputMatches: false, canAutoSwitch: false,
-                                           message: "未检测到 VibeCast Virtual Mic 或 BlackHole 2ch",
+                                           message: "未检测到 VibeCast Virtual Mic",
                                            shandianshuoInstalled: shandianshuo.installed,
                                            shandianshuoAudioDevice: shandianshuo.audioDevice,
                                            shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
                                            shandianshuoMessage: shandianshuo.message)
+            return (env, settings)
         }
-        let shandianshuo = ShanDianShuoVoiceBridge.bindToVirtualMic(device.name)
-        return VoiceEnvironmentMessage(installed: true, deviceName: device.name,
+        let shandianshuo = ShanDianShuoVoiceBridge.bindToVirtualMic(device.name, originalAudioDevice: settings.managedOriginalAudioDevice)
+        var nextSettings = settings
+        nextSettings.managedOriginalAudioDevice = shandianshuo.originalAudioDevice ?? settings.managedOriginalAudioDevice
+        nextSettings.managedVirtualAudioDevice = device.name
+        let env = VoiceEnvironmentMessage(enabled: nextSettings.enabled,
+                                       provider: nextSettings.provider,
+                                       triggerMode: nextSettings.triggerMode,
+                                       shortcut: nextSettings.shortcut,
+                                       installed: true, deviceName: device.name,
+                                       dedicatedInstalled: dedicatedVoiceDevice() != nil,
+                                       usingCompatibilityDevice: false,
                                        defaultInputMatches: defaultInputDevice() == device.id,
                                        canAutoSwitch: isDefaultInputSettable(),
                                        message: "已检测到可用虚拟麦克风",
@@ -73,18 +94,16 @@ enum VoiceAudioDeviceManager {
                                        shandianshuoAudioDevice: shandianshuo.audioDevice,
                                        shandianshuoMatchesVirtualMic: shandianshuo.matchesVirtualMic,
                                        shandianshuoMessage: shandianshuo.message)
+        return (env, nextSettings)
     }
 
     static func preferredVoiceDevice() -> VoiceAudioDevice? {
+        dedicatedVoiceDevice()
+    }
+
+    static func dedicatedVoiceDevice() -> VoiceAudioDevice? {
         let devices = allDevices()
-        for name in compatibleDeviceNames {
-            if let device = devices.first(where: { $0.name == name && $0.hasInput && $0.hasOutput }) {
-                return device
-            }
-        }
-        return devices.first { device in
-            device.isVirtual && device.hasInput && device.hasOutput && device.name.localizedCaseInsensitiveContains("blackhole")
-        }
+        return devices.first { $0.name == preferredDeviceName && $0.hasInput && $0.hasOutput }
     }
 
     static func allDevices() -> [VoiceAudioDevice] {
@@ -175,6 +194,97 @@ enum VoiceAudioDeviceManager {
                                                  mElement: kAudioObjectPropertyElementMain)
         var size: UInt32 = 0
         return AudioObjectGetPropertyDataSize(id, &address, 0, nil, &size) == noErr && size > 0
+    }
+
+    private static func voiceEnvironment(settings: VoiceRelaySettings, message: String?) -> VoiceEnvironmentMessage {
+        let base = voiceEnvironment(settings: settings)
+        return VoiceEnvironmentMessage(enabled: base.enabled,
+                                       provider: base.provider,
+                                       triggerMode: base.triggerMode,
+                                       shortcut: base.shortcut,
+                                       installed: base.installed,
+                                       deviceName: base.deviceName,
+                                       dedicatedInstalled: base.dedicatedInstalled,
+                                       usingCompatibilityDevice: false,
+                                       defaultInputMatches: base.defaultInputMatches,
+                                       canAutoSwitch: base.canAutoSwitch,
+                                       message: message ?? base.message,
+                                       shandianshuoInstalled: base.shandianshuoInstalled,
+                                       shandianshuoAudioDevice: base.shandianshuoAudioDevice,
+                                       shandianshuoMatchesVirtualMic: base.shandianshuoMatchesVirtualMic,
+                                       shandianshuoMessage: base.shandianshuoMessage)
+    }
+}
+
+enum VoiceVirtualMicInstaller {
+    struct InstallResult {
+        let installed: Bool
+        let message: String
+    }
+
+    private static let bundleName = "VibeCastVirtualMic"
+    private static let destinationPath = "/Library/Audio/Plug-Ins/HAL/VibeCastVirtualMic.driver"
+
+    static func installBundledDriver() -> InstallResult {
+        if VoiceAudioDeviceManager.dedicatedVoiceDevice() != nil {
+            return InstallResult(installed: true, message: "已检测到 VibeCast Virtual Mic")
+        }
+        guard let sourceURL = bundledDriverURL() else {
+            return InstallResult(installed: false, message: "未找到内包的 VibeCastVirtualMic.driver，请重新安装 VibeCast")
+        }
+
+        let command = [
+            "mkdir -p /Library/Audio/Plug-Ins/HAL",
+            "rm -rf \(shellQuote(destinationPath))",
+            "ditto --norsrc --noqtn --noextattr --noacl \(shellQuote(sourceURL.path)) \(shellQuote(destinationPath))",
+            "xattr -cr \(shellQuote(destinationPath)) 2>/dev/null || true",
+            "killall coreaudiod 2>/dev/null || true"
+        ].joined(separator: " && ")
+
+        let script = "do shell script \(appleScriptString(command)) with administrator privileges"
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        let pipe = Pipe()
+        process.standardError = pipe
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            return InstallResult(installed: false, message: "无法启动虚拟麦克风安装器：\(error.localizedDescription)")
+        }
+
+        guard process.terminationStatus == 0 else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let detail = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return InstallResult(installed: false, message: detail?.isEmpty == false ? "虚拟麦克风安装失败：\(detail!)" : "虚拟麦克风安装已取消或失败")
+        }
+
+        for _ in 0..<40 {
+            if VoiceAudioDeviceManager.dedicatedVoiceDevice() != nil {
+                return InstallResult(installed: true, message: "已安装 VibeCast Virtual Mic")
+            }
+            Thread.sleep(forTimeInterval: 0.25)
+        }
+        return InstallResult(installed: false, message: "已复制虚拟麦克风驱动，但 CoreAudio 尚未加载到 VibeCast Virtual Mic；请重启 VibeCast 或 macOS 后再试")
+    }
+
+    private static func bundledDriverURL() -> URL? {
+        let candidates = [
+            Bundle.main.url(forResource: bundleName, withExtension: "driver"),
+            Bundle.module.url(forResource: bundleName, withExtension: "driver")
+        ].compactMap { $0 }
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    private static func appleScriptString(_ value: String) -> String {
+        "\"" + value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"") + "\""
     }
 }
 

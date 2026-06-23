@@ -41,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         registerSleepWakeObservers()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        session?.restoreManagedVoiceInput()
+    }
+
     // MARK: - 睡眠/唤醒（PRD 16.5）
 
     private func registerSleepWakeObservers() {
@@ -349,6 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func quit() {
+        session?.restoreManagedVoiceInput()
         phoneServer?.stop()
         configServer?.stop()
         NSApp.terminate(nil)

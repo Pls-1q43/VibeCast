@@ -197,6 +197,31 @@
   align-items: stretch;
 }
 
+.cfg-voice-explain {
+  display: grid;
+  gap: 4px;
+}
+
+.cfg-voice-explain p,
+.cfg-voice-toggle p {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.cfg-voice-toggle {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
 .cfg-list {
   overflow: hidden;
 }

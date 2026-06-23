@@ -12,6 +12,10 @@ import {
   type TargetId,
   type TargetProfile,
   type VoiceEnvironmentMessage,
+  type VoiceInputProvider,
+  type VoiceRelaySettings,
+  type VoiceTriggerMode,
+  type KeyShortcut,
   isServerMessage,
 } from "./ws/protocol.ts";
 import { getClientId } from "./store/draftStore.ts";
@@ -29,8 +33,6 @@ const PRESET_LABELS: Record<string, string> = {
   codebuddycn: "CodeBuddyCN",
   codebuddy: "CodeBuddy",
 };
-
-type VoiceShortcut = NonNullable<TargetProfile["voiceShortcut"]>;
 
 function pairingToken(): string {
   const fromUrl = new URLSearchParams(location.search).get("token");
@@ -51,6 +53,7 @@ let networkDraft: NetworkSettings | null = null;
 let networkInterfaces: NetworkInterfaceInfo[] = [];
 let portStatus: PortCheckResult | null = null;
 let voiceEnvironment: VoiceEnvironmentMessage | null = null;
+let voiceSettings: VoiceRelaySettings = defaultVoiceSettings();
 let awaitingNetworkSave = false;
 let reconnectTimer: number | null = null;
 let statusTimer: number | null = null;
@@ -97,11 +100,13 @@ function handle(m: ServerMessage) {
       connected = true;
       serverName = m.serverName;
       accessibilityGranted = m.accessibilityGranted;
+      voiceSettings.enabled = m.voiceRelayEnabled;
       setStatus(i18n.t("cfg.connected", { name: serverName }));
       send({ type: "get_config" });
       send({ type: "list_running_apps" });
       send({ type: "get_status" });
       send({ type: "get_network_settings" });
+      send({ type: "get_voice_settings" });
       send({ type: "get_voice_environment" });
       startStatusPolling();
       render();
@@ -143,6 +148,10 @@ function handle(m: ServerMessage) {
       break;
     case "voice_environment":
       voiceEnvironment = m;
+      render();
+      break;
+    case "voice_settings":
+      voiceSettings = normalizeVoiceSettings(m.settings);
       render();
       break;
     case "test_result": {
@@ -405,13 +414,34 @@ function renderVoiceEnvironment(): HTMLElement {
   const section = el("section", "cfg-network");
   const title = document.createElement("h2");
   title.textContent = i18n.t("cfg.voiceTitle");
-  const hint = document.createElement("p");
-  hint.className = "cfg-hint";
-  hint.textContent = i18n.t("cfg.voiceHint");
+  const explain = el("div", "cfg-voice-explain");
+  for (const key of ["cfg.voiceExplain1", "cfg.voiceExplain2", "cfg.voiceExplain3"]) {
+    const line = document.createElement("p");
+    line.textContent = i18n.t(key);
+    explain.append(line);
+  }
+
+  const toggleRow = el("div", "cfg-voice-toggle");
+  const toggleText = el("div", "cfg-row__summary");
+  const toggleTitle = document.createElement("strong");
+  toggleTitle.textContent = i18n.t("cfg.voiceRelaySwitch");
+  const toggleHint = document.createElement("p");
+  toggleHint.textContent = voiceSettings.enabled ? i18n.t("cfg.voiceRelayOn") : i18n.t("cfg.voiceRelayOff");
+  toggleText.append(toggleTitle, toggleHint);
+  const toggle = checkbox(voiceSettings.enabled, (enabled) => {
+    const next = normalizeVoiceSettings({ ...voiceSettings, enabled });
+    send({ type: "set_voice_settings", settings: next });
+    setStatus(enabled ? i18n.t("cfg.installingVoice") : i18n.t("cfg.voiceDisabling"));
+  });
+  toggle.setAttribute("aria-label", i18n.t("cfg.voiceRelaySwitch"));
+  toggleRow.append(toggle, toggleText);
+
+  section.append(title, explain, toggleRow);
+  if (!voiceSettings.enabled) return section;
 
   const status = el("div", voiceEnvironment?.installed ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
   status.textContent = voiceEnvironment?.installed
-    ? i18n.t("cfg.voiceInstalled", { name: voiceEnvironment.deviceName ?? "Virtual Mic" })
+    ? i18n.t("cfg.voiceInstalled", { name: voiceEnvironment.deviceName ?? "VibeCast Virtual Mic" })
     : i18n.t("cfg.voiceMissing");
 
   const detail = document.createElement("p");
@@ -423,48 +453,39 @@ function renderVoiceEnvironment(): HTMLElement {
       ].filter(Boolean).join(" · ")
     : i18n.t("cfg.loading");
 
-  const shandianshuoOk = voiceEnvironment?.shandianshuoMatchesVirtualMic === true;
-  const shandianshuoInstalled = voiceEnvironment?.shandianshuoInstalled === true;
-  const shandianshuoStatus = el("div", shandianshuoOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
-  shandianshuoStatus.textContent = shandianshuoOk
-    ? i18n.t("cfg.shandianshuoBound")
-    : shandianshuoInstalled
-      ? i18n.t("cfg.shandianshuoNeedsBind")
-      : i18n.t("cfg.shandianshuoMissing");
-
-  const shandianshuoDetail = document.createElement("p");
-  shandianshuoDetail.className = "cfg-hint";
-  shandianshuoDetail.textContent = voiceEnvironment
-    ? [
-        voiceEnvironment.shandianshuoAudioDevice
-          ? i18n.t("cfg.shandianshuoAudioDevice", { device: voiceEnvironment.shandianshuoAudioDevice })
-          : "",
-        voiceEnvironment.shandianshuoMessage ?? "",
-      ].filter(Boolean).join(" · ")
-    : i18n.t("cfg.loading");
-
-  const currentShortcut = currentGlobalVoiceShortcut();
-  const keyInput = input(currentShortcut.key, "right_command");
-  const modsInput = input(currentShortcut.modifiers.join(","), "command, option, control, shift");
-  const preset = select(voiceShortcutPresetValue(currentShortcut), [
-    ["right_command", i18n.t("cfg.voiceShortcutRightCommand")],
-    ["right_option", i18n.t("cfg.voiceShortcutRightOption")],
-    ["left_command", i18n.t("cfg.voiceShortcutLeftCommand")],
-    ["left_option", i18n.t("cfg.voiceShortcutLeftOption")],
-    ["custom", i18n.t("cfg.voiceShortcutCustom")],
+  const provider = select(voiceSettings.provider, voiceProviderOptions(), (v) => {
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, provider: v as VoiceInputProvider, ...providerDefaults(v as VoiceInputProvider) });
+    render();
+  });
+  const trigger = select(voiceSettings.triggerMode, [
+    ["toggle", i18n.t("cfg.voiceTriggerToggle")],
+    ["hold", i18n.t("cfg.voiceTriggerHold")],
   ], (v) => {
-    const next = voiceShortcutFromPreset(v, { modifiers: splitList(modsInput.value), key: keyInput.value || currentShortcut.key });
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, triggerMode: v as VoiceTriggerMode });
+  });
+  const keyInput = input(voiceSettings.shortcut.key, "right_command");
+  const modsInput = input(voiceSettings.shortcut.modifiers.join(","), "command, option, control, shift");
+  const preset = select(voiceShortcutPresetValue(voiceSettings.shortcut), voiceShortcutOptions(), (v) => {
+    const next = voiceShortcutFromPreset(v, { modifiers: splitList(modsInput.value), key: keyInput.value || voiceSettings.shortcut.key });
     keyInput.value = next.key;
     modsInput.value = next.modifiers.join(",");
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, shortcut: next });
   });
   keyInput.addEventListener("input", () => {
-    preset.value = voiceShortcutPresetValue({ modifiers: splitList(modsInput.value), key: keyInput.value });
+    const shortcut = { modifiers: splitList(modsInput.value), key: keyInput.value };
+    preset.value = voiceShortcutPresetValue(shortcut);
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, shortcut });
   });
   modsInput.addEventListener("input", () => {
-    preset.value = voiceShortcutPresetValue({ modifiers: splitList(modsInput.value), key: keyInput.value });
+    const shortcut = { modifiers: splitList(modsInput.value), key: keyInput.value };
+    preset.value = voiceShortcutPresetValue(shortcut);
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, shortcut });
   });
+
   const controls = el("div", "cfg-row__quick");
   controls.append(
+    wrapField(i18n.t("cfg.voiceProvider"), provider, i18n.t("cfg.voiceProviderHint")),
+    wrapField(i18n.t("cfg.voiceTriggerMode"), trigger, i18n.t("cfg.voiceTriggerHint")),
     wrapField(i18n.t("cfg.voiceWakeShortcut"), preset, i18n.t("cfg.voiceWakeShortcutHint")),
     wrapField(i18n.t("cfg.voiceShortcutKey"), keyInput),
     wrapField(i18n.t("cfg.voiceShortcutMods"), modsInput),
@@ -472,84 +493,40 @@ function renderVoiceEnvironment(): HTMLElement {
 
   const actions = el("div", "cfg-row__actions");
   actions.append(
+    button(i18n.t("cfg.saveVoiceSettings"), "btn btn--primary", () => {
+      send({ type: "set_voice_settings", settings: normalizeVoiceSettings(voiceSettings) });
+      setStatus(i18n.t("cfg.savingVoiceSettings"));
+    }),
     button(i18n.t("cfg.refreshVoice"), "btn btn--ghost", () => {
+      send({ type: "get_voice_settings" });
       send({ type: "get_voice_environment" });
       setStatus(i18n.t("cfg.refreshingVoice"));
     }),
-    button(i18n.t("cfg.installVoice"), voiceEnvironment?.installed ? "btn btn--ghost" : "btn btn--primary", () => {
-      send({ type: "install_virtual_mic" });
-      setStatus(i18n.t("cfg.installingVoice"));
-    }),
-    button(i18n.t("cfg.bindShanDianShuoMic"), shandianshuoOk ? "btn btn--ghost" : "btn btn--primary", () => {
-      send({ type: "bind_shandianshuo_mic" });
-      setStatus(i18n.t("cfg.bindingShanDianShuoMic"));
-    }),
-    button(i18n.t("cfg.saveVoiceShortcut"), "btn btn--primary", () => {
-      saveGlobalVoiceShortcut({ modifiers: splitList(modsInput.value), key: keyInput.value || "right_command" });
-    }),
   );
-  section.append(title, hint, status, detail, shandianshuoStatus, shandianshuoDetail, controls, actions);
+  if (voiceSettings.provider === "shandianshuo") {
+    const shandianshuoOk = voiceEnvironment?.shandianshuoMatchesVirtualMic === true;
+    const shandianshuoInstalled = voiceEnvironment?.shandianshuoInstalled === true;
+    const shandianshuoStatus = el("div", shandianshuoOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+    shandianshuoStatus.textContent = shandianshuoOk
+      ? i18n.t("cfg.shandianshuoBound")
+      : shandianshuoInstalled
+        ? i18n.t("cfg.shandianshuoNeedsBind")
+        : i18n.t("cfg.shandianshuoMissing");
+    const shandianshuoDetail = document.createElement("p");
+    shandianshuoDetail.className = "cfg-hint";
+    shandianshuoDetail.textContent = voiceEnvironment
+      ? [
+          voiceEnvironment.shandianshuoAudioDevice
+            ? i18n.t("cfg.shandianshuoAudioDevice", { device: voiceEnvironment.shandianshuoAudioDevice })
+            : "",
+          voiceEnvironment.shandianshuoMessage ?? "",
+        ].filter(Boolean).join(" · ")
+      : i18n.t("cfg.loading");
+    section.append(status, detail, shandianshuoStatus, shandianshuoDetail, controls, actions);
+  } else {
+    section.append(status, detail, controls, actions);
+  }
   return section;
-}
-
-function currentGlobalVoiceShortcut(): VoiceShortcut {
-  const shortcut = targets.find((t) => t.profile.voiceShortcut)?.profile.voiceShortcut;
-  return normalizeVoiceShortcut(shortcut);
-}
-
-function normalizeVoiceShortcut(shortcut?: VoiceShortcut | null): VoiceShortcut {
-  const key = shortcut?.key?.trim() || "right_option";
-  return { modifiers: shortcut?.modifiers ?? [], key };
-}
-
-function voiceShortcutPresetValue(shortcut: VoiceShortcut): string {
-  if (shortcut.modifiers.length) return "custom";
-  switch (shortcut.key.trim().toLowerCase()) {
-  case "right_command":
-  case "rightcommand":
-  case "right_cmd":
-  case "rightcmd":
-  case "command_right":
-  case "cmd_right":
-    return "right_command";
-  case "right_option":
-  case "rightoption":
-  case "right_opt":
-  case "rightopt":
-  case "option_right":
-  case "opt_right":
-    return "right_option";
-  case "left_command":
-  case "leftcommand":
-  case "left_cmd":
-  case "leftcmd":
-  case "command_left":
-  case "cmd_left":
-    return "left_command";
-  case "left_option":
-  case "leftoption":
-  case "left_opt":
-  case "leftopt":
-  case "option_left":
-  case "opt_left":
-    return "left_option";
-  default:
-    return "custom";
-  }
-}
-
-function voiceShortcutFromPreset(value: string, fallback: VoiceShortcut): VoiceShortcut {
-  if (value === "custom") return fallback;
-  return { modifiers: [], key: value };
-}
-
-function saveGlobalVoiceShortcut(shortcut: VoiceShortcut): void {
-  const normalized = normalizeVoiceShortcut(shortcut);
-  for (const target of targets) {
-    target.profile.voiceShortcut = normalized;
-    send({ type: "set_config", targetId: target.id, profile: target.profile });
-  }
-  setStatus(i18n.t("cfg.voiceShortcutSaved", { key: normalized.key }));
 }
 
 function renderTargetList(): HTMLElement {
@@ -942,6 +919,112 @@ function el(tag: string, className: string): HTMLElement {
 
 function splitList(v: string): string[] {
   return v.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function defaultVoiceSettings(): VoiceRelaySettings {
+  return {
+    enabled: false,
+    provider: "shandianshuo",
+    triggerMode: "toggle",
+    shortcut: { modifiers: [], key: "right_command" },
+    managedOriginalAudioDevice: null,
+    managedVirtualAudioDevice: null,
+  };
+}
+
+function normalizeVoiceSettings(settings: VoiceRelaySettings): VoiceRelaySettings {
+  const defaults = providerDefaults(settings.provider);
+  const shortcut = settings.shortcut?.key?.trim()
+    ? { modifiers: settings.shortcut.modifiers ?? [], key: settings.shortcut.key.trim() }
+    : defaults.shortcut;
+  return {
+    enabled: Boolean(settings.enabled),
+    provider: settings.provider,
+    triggerMode: settings.triggerMode || defaults.triggerMode,
+    shortcut,
+    managedOriginalAudioDevice: settings.managedOriginalAudioDevice ?? null,
+    managedVirtualAudioDevice: settings.managedVirtualAudioDevice ?? null,
+  };
+}
+
+function providerDefaults(provider: VoiceInputProvider): Pick<VoiceRelaySettings, "triggerMode" | "shortcut"> {
+  switch (provider) {
+    case "shandianshuo":
+      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "right_command" } };
+    case "typeless":
+    case "wechat_input":
+    case "doubao_input":
+      return { triggerMode: "hold", shortcut: { modifiers: [], key: "fn" } };
+    case "macos_dictation":
+    case "custom":
+      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "right_option" } };
+  }
+}
+
+function voiceProviderOptions(): [string, string][] {
+  return [
+    ["shandianshuo", i18n.t("cfg.voiceProviderShanDianShuo")],
+    ["typeless", i18n.t("cfg.voiceProviderTypeless")],
+    ["wechat_input", i18n.t("cfg.voiceProviderWechat")],
+    ["doubao_input", i18n.t("cfg.voiceProviderDoubao")],
+    ["macos_dictation", i18n.t("cfg.voiceProviderMacOS")],
+    ["custom", i18n.t("cfg.voiceProviderCustom")],
+  ];
+}
+
+function voiceShortcutOptions(): [string, string][] {
+  return [
+    ["right_command", i18n.t("cfg.voiceShortcutRightCommand")],
+    ["right_option", i18n.t("cfg.voiceShortcutRightOption")],
+    ["fn", i18n.t("cfg.voiceShortcutFn")],
+    ["left_command", i18n.t("cfg.voiceShortcutLeftCommand")],
+    ["left_option", i18n.t("cfg.voiceShortcutLeftOption")],
+    ["custom", i18n.t("cfg.voiceShortcutCustom")],
+  ];
+}
+
+function voiceShortcutPresetValue(shortcut: KeyShortcut): string {
+  if (shortcut.modifiers.length) return "custom";
+  switch (shortcut.key.trim().toLowerCase()) {
+  case "right_command":
+  case "rightcommand":
+  case "right_cmd":
+  case "rightcmd":
+  case "command_right":
+  case "cmd_right":
+    return "right_command";
+  case "right_option":
+  case "rightoption":
+  case "right_opt":
+  case "rightopt":
+  case "option_right":
+  case "opt_right":
+    return "right_option";
+  case "left_command":
+  case "leftcommand":
+  case "left_cmd":
+  case "leftcmd":
+  case "command_left":
+  case "cmd_left":
+    return "left_command";
+  case "left_option":
+  case "leftoption":
+  case "left_opt":
+  case "leftopt":
+  case "option_left":
+  case "opt_left":
+    return "left_option";
+  case "fn":
+  case "function":
+    return "fn";
+  default:
+    return "custom";
+  }
+}
+
+function voiceShortcutFromPreset(value: string, fallback: KeyShortcut): KeyShortcut {
+  if (value === "custom") return fallback;
+  return { modifiers: [], key: value };
 }
 
 function validateProfile(p: TargetProfile): string[] {

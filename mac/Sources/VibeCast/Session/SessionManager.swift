@@ -66,6 +66,8 @@ final class SessionManager: ServerDelegate {
         var chunks: Int = 0
         var startedAt = Date()
         var hotkeyPressed = false
+        var triggerMode: VoiceTriggerMode
+        var shortcut: KeyShortcut
         var previousInputDevice: AudioDeviceID?
         var relay: VoiceAudioRelay?
         var deviceName: String?
@@ -140,6 +142,10 @@ final class SessionManager: ServerDelegate {
             handleVoiceStop(conn, data: data)
         case "get_voice_environment":
             handleGetVoiceEnvironment(conn)
+        case "get_voice_settings":
+            handleGetVoiceSettings(conn)
+        case "set_voice_settings":
+            handleSetVoiceSettings(conn, data: data)
         case "install_virtual_mic":
             handleInstallVirtualMic(conn)
         case "bind_shandianshuo_mic":
@@ -277,7 +283,8 @@ final class SessionManager: ServerDelegate {
         send(conn, HelloAckMessage(serverName: serverName,
                                    protocolVersion: kProtocolVersion,
                                    targets: targets,
-                                   accessibilityGranted: AccessibilityPermission.isGranted))
+                                   accessibilityGranted: AccessibilityPermission.isGranted,
+                                   voiceRelayEnabled: config.voiceRelaySettings.enabled))
         delegate?.sessionPairedCountChanged(count)
         delegate?.sessionDidLog("paired \(hello.deviceName) (\(conn.id.uuidString.prefix(8)))")
     }
@@ -370,10 +377,17 @@ final class SessionManager: ServerDelegate {
                   revision: msg.revision, text: "")
     }
 
-    /// 语音传递实验：手机长按后请求 Mac 聚焦目标，并触发目标 Profile 中的语音输入快捷键。
+    /// 语音投递：手机长按后请求 Mac 聚焦目标，并按全局语音环境触发远端语音输入法。
     private func handleVoiceStart(_ conn: Connection, data: Data) {
         guard let msg = try? ProtocolCodec.decoder.decode(VoiceStartMessage.self, from: data) else {
             sendError(conn, code: .badMessage, message: "voice_start 结构错误")
+            return
+        }
+        var settings = config.voiceRelaySettings.normalized()
+        guard settings.enabled else {
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "请先在 Mac 配置页开启语音投递模式",
+                                         receivedBytes: nil))
             return
         }
         guard config.isUsable(msg.targetId) else {
@@ -394,11 +408,16 @@ final class SessionManager: ServerDelegate {
                                          receivedBytes: nil))
             return
         }
-        guard let device = VoiceAudioDeviceManager.preferredVoiceDevice() else {
+        guard let device = VoiceAudioDeviceManager.dedicatedVoiceDevice() else {
             send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
-                                         state: "error", message: "未检测到 VibeCast Virtual Mic 或 BlackHole 2ch",
+                                         state: "error", message: "未检测到 VibeCast Virtual Mic，请先在配置页开启语音投递模式并完成安装",
                                          receivedBytes: nil))
             return
+        }
+        if settings.provider == .shandianshuo {
+            let (env, nextSettings) = VoiceAudioDeviceManager.bindShanDianShuoToVirtualMic(settings: settings)
+            settings = config.updateVoiceRelaySettings(nextSettings)
+            send(conn, env)
         }
         let previousInput = VoiceAudioDeviceManager.defaultInputDevice()
         guard VoiceAudioDeviceManager.setDefaultInputDevice(device.id) else {
@@ -418,13 +437,18 @@ final class SessionManager: ServerDelegate {
 
         let key = VoiceSessionKey(connectionId: conn.id, sessionId: msg.sessionId, targetId: msg.targetId)
         lock.lock()
-        voiceStates[key] = VoiceRelayState(previousInputDevice: previousInput, relay: relay, deviceName: device.name)
+        voiceStates[key] = VoiceRelayState(triggerMode: settings.triggerMode,
+                                           shortcut: settings.shortcut,
+                                           previousInputDevice: previousInput,
+                                           relay: relay,
+                                           deviceName: device.name)
         lock.unlock()
 
         send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                        status: .focusing, errorCode: nil, message: nil))
 
         let profile = config.profile(msg.targetId)
+        let voiceSettings = settings
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
             let outcome = FocusController.focus(targetId: msg.targetId, sessionId: msg.sessionId, profile: profile)
@@ -433,12 +457,12 @@ final class SessionManager: ServerDelegate {
                 self.lock.lock()
                 self.activeBinding = binding
                 if var state = self.voiceStates[key] {
-                    state.hotkeyPressed = KeyboardSynth.press(profile.voiceShortcut)
+                    state.hotkeyPressed = self.triggerVoiceInputStart(voiceSettings)
                     self.voiceStates[key] = state
                 }
                 self.lock.unlock()
 
-                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(device.name) key=\(profile.voiceShortcut.key)")
+                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(device.name) provider=\(voiceSettings.provider.rawValue) key=\(voiceSettings.shortcut.key)")
                 self.send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                                     status: .focused, errorCode: nil, message: nil))
                 let started = self.voiceStates[key]?.hotkeyPressed == true
@@ -502,14 +526,10 @@ final class SessionManager: ServerDelegate {
             return
         }
         let key = VoiceSessionKey(connectionId: conn.id, sessionId: msg.sessionId, targetId: msg.targetId)
-        let profile = config.profile(msg.targetId)
         lock.lock()
         let state = voiceStates.removeValue(forKey: key)
         lock.unlock()
 
-        if state?.hotkeyPressed == true {
-            _ = KeyboardSynth.press(profile.voiceShortcut)
-        }
         if let state { stopVoiceState(state) }
         let bytes = state?.receivedBytes ?? 0
         let chunks = state?.chunks ?? 0
@@ -519,9 +539,26 @@ final class SessionManager: ServerDelegate {
     }
 
     private func stopVoiceState(_ state: VoiceRelayState) {
+        if state.hotkeyPressed {
+            switch state.triggerMode {
+            case .toggle:
+                _ = KeyboardSynth.press(state.shortcut)
+            case .hold:
+                _ = KeyboardSynth.keyUp(state.shortcut)
+            }
+        }
         state.relay?.stop()
         if let previous = state.previousInputDevice {
             _ = VoiceAudioDeviceManager.setDefaultInputDevice(previous)
+        }
+    }
+
+    private func triggerVoiceInputStart(_ settings: VoiceRelaySettings) -> Bool {
+        switch settings.triggerMode {
+        case .toggle:
+            return KeyboardSynth.press(settings.shortcut)
+        case .hold:
+            return KeyboardSynth.keyDown(settings.shortcut)
         }
     }
 
@@ -839,18 +876,86 @@ final class SessionManager: ServerDelegate {
     }
 
     private func handleGetVoiceEnvironment(_ conn: Connection) {
-        send(conn, VoiceAudioDeviceManager.voiceEnvironment())
+        send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: config.voiceRelaySettings))
+    }
+
+    private func handleGetVoiceSettings(_ conn: Connection) {
+        send(conn, VoiceSettingsMessage(settings: config.voiceRelaySettings))
+    }
+
+    private func handleSetVoiceSettings(_ conn: Connection, data: Data) {
+        guard let msg = try? ProtocolCodec.decoder.decode(SetVoiceSettingsMessage.self, from: data) else {
+            sendError(conn, code: .badMessage, message: "set_voice_settings 结构错误")
+            return
+        }
+
+        let previous = config.voiceRelaySettings.normalized()
+        var next = msg.settings.normalized()
+
+        if !next.enabled {
+            let restored = restoreManagedVoiceInput(from: previous)
+            next.managedOriginalAudioDevice = nil
+            next.managedVirtualAudioDevice = nil
+            next = config.updateVoiceRelaySettings(next)
+            delegate?.sessionDidLog("voice_relay disabled restored=\(restored)")
+            send(conn, VoiceSettingsMessage(settings: next))
+            send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
+            delegate?.sessionConfigChanged()
+            return
+        }
+
+        if next.provider != .shandianshuo || previous.provider != .shandianshuo {
+            let restored = restoreManagedVoiceInput(from: previous)
+            if restored {
+                next.managedOriginalAudioDevice = nil
+                next.managedVirtualAudioDevice = nil
+            }
+        }
+
+        if VoiceAudioDeviceManager.dedicatedVoiceDevice() == nil {
+            let env = VoiceAudioDeviceManager.installVirtualMic(settings: next)
+            guard env.installed && env.dedicatedInstalled else {
+                next.enabled = false
+                next.managedOriginalAudioDevice = nil
+                next.managedVirtualAudioDevice = nil
+                next = config.updateVoiceRelaySettings(next)
+                delegate?.sessionDidLog("voice_relay enable_failed device=<none>")
+                send(conn, VoiceSettingsMessage(settings: next))
+                send(conn, env)
+                return
+            }
+        }
+
+        if next.provider == .shandianshuo {
+            let (env, boundSettings) = VoiceAudioDeviceManager.bindShanDianShuoToVirtualMic(settings: next)
+            next = boundSettings.normalized()
+            next.enabled = true
+            next = config.updateVoiceRelaySettings(next)
+            delegate?.sessionDidLog("voice_relay enabled provider=\(next.provider.rawValue) key=\(next.shortcut.key) shandianshuo=\(env.shandianshuoMatchesVirtualMic == true)")
+            send(conn, VoiceSettingsMessage(settings: next))
+            send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
+        } else {
+            next.managedOriginalAudioDevice = nil
+            next.managedVirtualAudioDevice = nil
+            next = config.updateVoiceRelaySettings(next)
+            delegate?.sessionDidLog("voice_relay enabled provider=\(next.provider.rawValue) key=\(next.shortcut.key)")
+            send(conn, VoiceSettingsMessage(settings: next))
+            send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
+        }
+        delegate?.sessionConfigChanged()
     }
 
     private func handleInstallVirtualMic(_ conn: Connection) {
-        let result = VoiceAudioDeviceManager.installVirtualMic()
+        let result = VoiceAudioDeviceManager.installVirtualMic(settings: config.voiceRelaySettings)
         delegate?.sessionDidLog("voice_environment installed=\(result.installed) device=\(result.deviceName ?? "<none>")")
         send(conn, result)
     }
 
     private func handleBindShanDianShuoMic(_ conn: Connection) {
-        let result = VoiceAudioDeviceManager.bindShanDianShuoToVirtualMic()
+        let (result, settings) = VoiceAudioDeviceManager.bindShanDianShuoToVirtualMic(settings: config.voiceRelaySettings)
+        let saved = config.updateVoiceRelaySettings(settings)
         delegate?.sessionDidLog("shandianshuo_mic bound=\(result.shandianshuoMatchesVirtualMic == true) device=\(result.shandianshuoAudioDevice ?? "<none>")")
+        send(conn, VoiceSettingsMessage(settings: saved))
         send(conn, result)
     }
 
@@ -898,6 +1003,23 @@ final class SessionManager: ServerDelegate {
         delegate?.sessionDidLog("config enabled \(msg.targetId.rawValue)=\(msg.enabled)")
         handleGetConfig(conn)
         delegate?.sessionConfigChanged()
+    }
+
+    func restoreManagedVoiceInput() {
+        let current = config.voiceRelaySettings.normalized()
+        let restored = restoreManagedVoiceInput(from: current)
+        guard restored else { return }
+        var next = current
+        next.managedOriginalAudioDevice = nil
+        next.managedVirtualAudioDevice = nil
+        _ = config.updateVoiceRelaySettings(next)
+        delegate?.sessionDidLog("voice_relay restored managed input")
+    }
+
+    @discardableResult
+    private func restoreManagedVoiceInput(from settings: VoiceRelaySettings) -> Bool {
+        ShanDianShuoVoiceBridge.restoreIfManaged(originalAudioDevice: settings.managedOriginalAudioDevice,
+                                                 virtualAudioDevice: settings.managedVirtualAudioDevice)
     }
 
     // MARK: - 发送辅助

@@ -57,6 +57,8 @@ enum KeyboardSynth {
         "right_shift": CGKeyCode(kVK_RightShift),
         "rightshift": CGKeyCode(kVK_RightShift),
         "shift_right": CGKeyCode(kVK_RightShift),
+        "fn": CGKeyCode(kVK_Function),
+        "function": CGKeyCode(kVK_Function),
         "a": CGKeyCode(kVK_ANSI_A), "k": CGKeyCode(kVK_ANSI_K), "l": CGKeyCode(kVK_ANSI_L),
         "n": CGKeyCode(kVK_ANSI_N), "j": CGKeyCode(kVK_ANSI_J), "i": CGKeyCode(kVK_ANSI_I),
         "v": CGKeyCode(kVK_ANSI_V), "z": CGKeyCode(kVK_ANSI_Z),
@@ -97,7 +99,7 @@ enum KeyboardSynth {
     /// 向系统投递一个快捷键（键按下+抬起）。返回是否成功映射键码。
     @discardableResult
     static func press(_ shortcut: KeyShortcut) -> Bool {
-        guard let code = keyCodes[shortcut.key.lowercased()] else { return false }
+        guard let code = keyCode(for: shortcut) else { return false }
         let src = CGEventSource(stateID: .hidSystemState)
         let flags = flags(for: shortcut.modifiers)
 
@@ -112,5 +114,32 @@ enum KeyboardSynth {
         Thread.sleep(forTimeInterval: 0.035)
         up.post(tap: .cghidEventTap)
         return true
+    }
+
+    @discardableResult
+    static func keyDown(_ shortcut: KeyShortcut) -> Bool {
+        post(shortcut, keyDown: true)
+    }
+
+    @discardableResult
+    static func keyUp(_ shortcut: KeyShortcut) -> Bool {
+        post(shortcut, keyDown: false)
+    }
+
+    private static func post(_ shortcut: KeyShortcut, keyDown: Bool) -> Bool {
+        guard let code = keyCode(for: shortcut),
+              let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState),
+                                  virtualKey: code,
+                                  keyDown: keyDown) else {
+            return false
+        }
+        let explicit = flags(for: shortcut.modifiers)
+        event.flags = keyDown ? explicit.union(implicitFlag(for: shortcut.key)) : explicit
+        event.post(tap: .cghidEventTap)
+        return true
+    }
+
+    private static func keyCode(for shortcut: KeyShortcut) -> CGKeyCode? {
+        keyCodes[shortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
     }
 }
