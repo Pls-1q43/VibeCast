@@ -411,7 +411,7 @@ final class SessionManager: ServerDelegate {
             return
         }
         guard let device = VoiceAudioDeviceManager.dedicatedVoiceDevice() else {
-                    send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                          state: "error", message: "未检测到 BlackHole 2ch，请先在配置页开启语音投递模式并完成安装",
                                          receivedBytes: nil))
             return
@@ -426,38 +426,26 @@ final class SessionManager: ServerDelegate {
             send(conn, env)
         }
         let previousInput = VoiceAudioDeviceManager.defaultInputDevice()
-        let typelessCurrentVirtualInput = previousInput
-            .flatMap { VoiceAudioDeviceManager.device($0) }
-            .flatMap { candidate -> VoiceAudioDevice? in
-                guard settings.provider == .typeless,
-                      candidate.id != device.id,
-                      candidate.hasInput,
-                      candidate.hasOutput,
-                      candidate.isVirtual else {
-                    return nil
-                }
-                return candidate
-            }
-        let relayDevice = typelessCurrentVirtualInput ?? device
-        let previousInputToRestore: AudioDeviceID?
-        if let typelessCurrentVirtualInput {
-            previousInputToRestore = nil
-            delegate?.sessionDidLog("voice_input_route provider=typeless mode=current_virtual_input target=\(typelessCurrentVirtualInput.name) uid=\(typelessCurrentVirtualInput.uid) default=\(VoiceAudioDeviceManager.deviceLabel(previousInput))")
-        } else {
-            previousInputToRestore = previousInput
-            let previousInputLabel = VoiceAudioDeviceManager.deviceLabel(previousInput)
-            guard VoiceAudioDeviceManager.setDefaultInputDevice(device.id) else {
-                send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
-                                             state: "error", message: "无法切换 macOS 默认输入设备",
-                                             receivedBytes: nil))
-                return
-            }
-            let currentInput = VoiceAudioDeviceManager.defaultInputDevice()
-            let inputSwitched = currentInput.map { $0 == device.id } ?? false
-            delegate?.sessionDidLog("voice_input_switch previous=\(previousInputLabel) target=\(device.name) current=\(VoiceAudioDeviceManager.deviceLabel(currentInput)) ok=\(inputSwitched)")
+        let previousInputToRestore = previousInput
+        let previousInputLabel = VoiceAudioDeviceManager.deviceLabel(previousInput)
+        guard VoiceAudioDeviceManager.setDefaultInputDevice(device.id) else {
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "无法切换 macOS 默认输入设备",
+                                         receivedBytes: nil))
+            return
+        }
+        let currentInput = VoiceAudioDeviceManager.defaultInputDevice()
+        let inputSwitched = currentInput.map { $0 == device.id } ?? false
+        delegate?.sessionDidLog("voice_input_switch previous=\(previousInputLabel) target=\(device.name) current=\(VoiceAudioDeviceManager.deviceLabel(currentInput)) ok=\(inputSwitched)")
+        guard inputSwitched else {
+            if let previousInputToRestore { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInputToRestore) }
+            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                         state: "error", message: "macOS 默认输入未切换到 \(device.name)",
+                                         receivedBytes: nil))
+            return
         }
         let relay = VoiceAudioRelay()
-        guard relay.start(deviceUID: relayDevice.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
+        guard relay.start(deviceUID: device.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
             if let previousInputToRestore { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInputToRestore) }
             send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                          state: "error", message: "无法向虚拟麦克风输出音频",
@@ -471,7 +459,7 @@ final class SessionManager: ServerDelegate {
                                            shortcut: settings.shortcut,
                                            previousInputDevice: previousInputToRestore,
                                            relay: relay,
-                                           deviceName: relayDevice.name)
+                                           deviceName: device.name)
         lock.unlock()
 
         send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
@@ -496,7 +484,7 @@ final class SessionManager: ServerDelegate {
                 self.lock.unlock()
 
                 let hotkey = self.voiceStates[key]?.hotkeyPressed == true
-                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(relayDevice.name) provider=\(voiceSettings.provider.rawValue) trigger=\(voiceSettings.triggerMode.rawValue) key=\(voiceSettings.shortcut.key) hotkey=\(hotkey)")
+                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(device.name) provider=\(voiceSettings.provider.rawValue) trigger=\(voiceSettings.triggerMode.rawValue) key=\(voiceSettings.shortcut.key) hotkey=\(hotkey)")
                 self.send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                                     status: .focused, errorCode: nil, message: nil))
                 let started = hotkey
