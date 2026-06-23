@@ -900,6 +900,7 @@ final class SessionManager: ServerDelegate {
             delegate?.sessionDidLog("voice_relay disabled restored=\(restored)")
             send(conn, VoiceSettingsMessage(settings: next))
             send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
+            broadcastVoiceSettings(next, excluding: conn.id)
             delegate?.sessionConfigChanged()
             return
         }
@@ -922,6 +923,7 @@ final class SessionManager: ServerDelegate {
                 delegate?.sessionDidLog("voice_relay enable_failed device=<none> message=\(env.message ?? "<none>")")
                 send(conn, VoiceSettingsMessage(settings: next))
                 send(conn, env)
+                broadcastVoiceSettings(next, excluding: conn.id)
                 return
             }
         }
@@ -934,6 +936,7 @@ final class SessionManager: ServerDelegate {
             delegate?.sessionDidLog("voice_relay enabled provider=\(next.provider.rawValue) key=\(next.shortcut.key) shandianshuo=\(env.shandianshuoMatchesVirtualMic == true)")
             send(conn, VoiceSettingsMessage(settings: next))
             send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
+            broadcastVoiceSettings(next, excluding: conn.id)
         } else {
             next.managedOriginalAudioDevice = nil
             next.managedVirtualAudioDevice = nil
@@ -941,6 +944,7 @@ final class SessionManager: ServerDelegate {
             delegate?.sessionDidLog("voice_relay enabled provider=\(next.provider.rawValue) key=\(next.shortcut.key)")
             send(conn, VoiceSettingsMessage(settings: next))
             send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
+            broadcastVoiceSettings(next, excluding: conn.id)
         }
         delegate?.sessionConfigChanged()
     }
@@ -957,6 +961,7 @@ final class SessionManager: ServerDelegate {
         delegate?.sessionDidLog("shandianshuo_mic bound=\(result.shandianshuoMatchesVirtualMic == true) device=\(result.shandianshuoAudioDevice ?? "<none>")")
         send(conn, VoiceSettingsMessage(settings: saved))
         send(conn, result)
+        broadcastVoiceSettings(saved, excluding: conn.id)
     }
 
     private func handleOpenAccessibilitySettings() {
@@ -1027,6 +1032,14 @@ final class SessionManager: ServerDelegate {
     private func send<T: Encodable>(_ conn: Connection, _ msg: T) {
         guard let data = try? ProtocolCodec.encode(msg), let s = String(data: data, encoding: .utf8) else { return }
         conn.sendText(s)
+    }
+
+    private func broadcastVoiceSettings(_ settings: VoiceRelaySettings, excluding excludedId: UUID? = nil) {
+        lock.lock()
+        let conns = paired.values.filter { $0.id != excludedId }
+        lock.unlock()
+        let message = VoiceSettingsMessage(settings: settings)
+        for conn in conns { send(conn, message) }
     }
 
     private func sendNetworkSettings(_ conn: Connection) {

@@ -205,6 +205,7 @@ export class App {
       } else {
         this.cards.get(target.id)?.setAllowEmpty(target.allowEmpty);
         this.cards.get(target.id)?.setSyncMode(target.syncMode);
+        this.cards.get(target.id)?.setVoiceRelayEnabled(this.voiceRelayEnabled);
       }
     }
 
@@ -233,6 +234,7 @@ export class App {
     card.setText(d.text, d.selectionStart, d.selectionEnd);
     card.setAllowEmpty(target.allowEmpty);
     card.setSyncMode(target.syncMode);
+    card.setVoiceRelayEnabled(this.voiceRelayEnabled);
     card.refreshButtons();
 
     const ime = new IMEController(card.textarea, {
@@ -513,6 +515,12 @@ export class App {
           this.activeVoice?.recorder.stop();
           this.activeVoice = null;
         }
+        break;
+      }
+      case "voice_settings": {
+        this.voiceRelayEnabled = msg.settings.enabled;
+        for (const card of this.cards.values()) card.setVoiceRelayEnabled(this.voiceRelayEnabled);
+        this.updateConnbar();
         break;
       }
       case "text_ack": {

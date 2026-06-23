@@ -30,6 +30,7 @@ export class Card {
   private voiceTimer: number | null = null;
   private voicePointerId: number | null = null;
   private voiceActive = false;
+  private voiceRelayEnabled = false;
   private readonly placeholderText: string;
 
   constructor(targetId: TargetId, displayName: string, iconDataUrl: string | null | undefined, private i18n: I18n, cb: CardCallbacks) {
@@ -126,6 +127,17 @@ export class Card {
     this.updateButtons();
   }
 
+  setVoiceRelayEnabled(enabled: boolean): void {
+    this.voiceRelayEnabled = enabled;
+    this.inputWrap.classList.toggle("card__inputwrap--voice-enabled", enabled);
+    if (!enabled) {
+      this.clearVoiceTimer();
+      this.voiceActive = false;
+      this.root.classList.remove("card--voice-active");
+    }
+    this.syncTextareaHeight();
+  }
+
   setStatus(status: SyncStatus, detail?: string | null): void {
     this.status = status;
     const label = this.i18n.status(status);
@@ -171,7 +183,7 @@ export class Card {
 
   private syncTextareaHeight(): void {
     this.textarea.style.height = "auto";
-    const compact = this.text.trim().length === 0 && document.activeElement !== this.textarea;
+    const compact = this.voiceRelayEnabled && this.text.trim().length === 0 && document.activeElement !== this.textarea;
     this.inputWrap.classList.toggle("card__inputwrap--compact", compact);
     this.textarea.placeholder = compact ? "" : this.placeholderText;
     const minHeight = compact ? 46 : this.textarea.scrollHeight;
@@ -179,6 +191,7 @@ export class Card {
   }
 
   private onVoicePointerDown(event: PointerEvent, cb: CardCallbacks): void {
+    if (!this.voiceRelayEnabled) return;
     if (event.button !== 0 || this.status === "disconnected" || this.status === "reconnecting") return;
     event.preventDefault();
     this.clearVoiceTimer();

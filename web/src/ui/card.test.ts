@@ -50,6 +50,7 @@ describe("Card", () => {
     vi.useFakeTimers();
     const onVoiceHoldStart = vi.fn();
     const card = makeCard({ onVoiceHoldStart });
+    card.setVoiceRelayEnabled(true);
     card.setStatus("focused");
 
     const pressLayer = card.element.querySelector<HTMLElement>(".card__voicepress")!;
@@ -64,6 +65,7 @@ describe("Card", () => {
 
   it("hides textarea placeholder while compact so the voice label does not ghost", () => {
     const card = makeCard();
+    card.setVoiceRelayEnabled(true);
     document.body.append(card.element);
 
     expect(card.textarea.placeholder).toBe("");
@@ -71,6 +73,23 @@ describe("Card", () => {
     card.textarea.focus();
     card.refreshButtons();
 
+    expect(card.textarea.placeholder).toBe("card.placeholder");
+  });
+
+  it("does not enter voice mode before voice relay is enabled", () => {
+    vi.useFakeTimers();
+    const onVoiceHoldStart = vi.fn();
+    const card = makeCard({ onVoiceHoldStart });
+    card.setStatus("focused");
+
+    const pressLayer = card.element.querySelector<HTMLElement>(".card__voicepress")!;
+    const event = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+    Object.defineProperty(event, "button", { value: 0 });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    pressLayer.dispatchEvent(event);
+    vi.advanceTimersByTime(451);
+
+    expect(onVoiceHoldStart).not.toHaveBeenCalled();
     expect(card.textarea.placeholder).toBe("card.placeholder");
   });
 });
