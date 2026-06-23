@@ -13,7 +13,9 @@ enum TypelessVoiceBridge {
     private static let selectedMicrophonePath = ["selectedMicrophoneDevice"]
     private static let microphoneDevicesPath = ["microphoneDevices"]
     private static let preferredBuiltInMicIdPath = ["preferredBuiltInMicId"]
+    private static let dynamicMicrophoneDegradationPath = ["dynamicMicrophoneDegradationEnabled"]
     private static let defaultDeviceId = "default"
+    private static let systemDefaultDescription = "Uses system default microphone"
     private static let bundleIdentifier = "now.typeless.desktop"
 
     private static let candidateFileNames = [
@@ -140,7 +142,11 @@ enum TypelessVoiceBridge {
                 updated = true
             }
             if hasKey(in: root, at: preferredBuiltInMicIdPath) {
-                setValue(defaultDeviceId, in: &root, at: preferredBuiltInMicIdPath)
+                setValue(NSNull(), in: &root, at: preferredBuiltInMicIdPath)
+                updated = true
+            }
+            if hasKey(in: root, at: dynamicMicrophoneDegradationPath) {
+                setValue(false, in: &root, at: dynamicMicrophoneDegradationPath)
                 updated = true
             }
 
@@ -228,7 +234,7 @@ enum TypelessVoiceBridge {
             "kind": "audioinput",
             "label": "系统默认麦克风",
             "groupId": defaultDeviceId,
-            "description": "VibeCast will switch macOS default input to \(deviceName)"
+            "description": systemDefaultDescription
         ]
     }
 

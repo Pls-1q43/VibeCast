@@ -103,6 +103,7 @@ final class TypelessVoiceBridgeTests: XCTestCase {
           ],
           "selectedMicrophoneDevice": null,
           "preferredBuiltInMicId": "builtin-id",
+          "dynamicMicrophoneDegradationEnabled": true,
           "enabledMuteBackgroundAudio": true
         }
         """.data(using: .utf8)!.write(to: config)
@@ -116,7 +117,9 @@ final class TypelessVoiceBridgeTests: XCTestCase {
         let selected = root["selectedMicrophoneDevice"] as! [String: Any]
         XCTAssertEqual(selected["deviceId"] as? String, "default")
         XCTAssertEqual(selected["label"] as? String, "系统默认麦克风")
-        XCTAssertEqual(root["preferredBuiltInMicId"] as? String, "default")
+        XCTAssertEqual(selected["description"] as? String, "Uses system default microphone")
+        XCTAssertTrue(root["preferredBuiltInMicId"] is NSNull)
+        XCTAssertEqual(root["dynamicMicrophoneDegradationEnabled"] as? Bool, false)
         let devices = root["microphoneDevices"] as! [[String: Any]]
         XCTAssertEqual(devices.count, 2)
         XCTAssertEqual(devices[1]["deviceId"] as? String, "default")
