@@ -437,6 +437,17 @@ final class SessionManager: ServerDelegate {
             settings = config.updateVoiceRelaySettings(nextSettings)
             send(conn, env)
         }
+        if settings.provider == .doubaoInput {
+            let doubao = DoubaoVoiceBridge.microphoneStatus(targetDeviceUID: dedicatedDevice.uid)
+            delegate?.sessionDidLog("doubao_mic selected=\(doubao.selectedName ?? doubao.selectedId ?? "<none>") target=\(doubao.targetName ?? doubao.targetId ?? dedicatedDevice.uid) matched=\(doubao.matchesTarget) devices=\(doubao.deviceCount)")
+            guard doubao.matchesTarget else {
+                send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                             state: "error",
+                                             message: doubao.message ?? "豆包输入法未使用 BlackHole 2ch 作为麦克风",
+                                             receivedBytes: nil))
+                return
+            }
+        }
         let previousInput = VoiceAudioDeviceManager.defaultInputDevice()
         let route = voiceInputRoute(for: settings.provider, dedicatedDevice: dedicatedDevice, previousInput: previousInput)
         let device = route.relayDevice
@@ -601,16 +612,6 @@ final class SessionManager: ServerDelegate {
 
     private func voiceInputRoute(for provider: VoiceInputProvider, dedicatedDevice: VoiceAudioDevice,
                                  previousInput: AudioDeviceID?) -> VoiceInputRoute {
-        if provider == .doubaoInput,
-           let previousInput,
-           previousInput != dedicatedDevice.id,
-           let currentDevice = VoiceAudioDeviceManager.device(previousInput),
-           currentDevice.isVirtual,
-           currentDevice.hasOutput {
-            return VoiceInputRoute(relayDevice: currentDevice,
-                                   previousInputDevice: nil,
-                                   mode: "current_virtual_input")
-        }
         return VoiceInputRoute(relayDevice: dedicatedDevice,
                                previousInputDevice: previousInput == dedicatedDevice.id ? nil : previousInput,
                                mode: "dedicated_virtual_input")
