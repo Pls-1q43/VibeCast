@@ -210,6 +210,10 @@ enum VoiceAudioDeviceManager {
         return device
     }
 
+    static func device(_ id: AudioDeviceID) -> VoiceAudioDevice? {
+        deviceInfo(id)
+    }
+
     static func deviceLabel(_ id: AudioDeviceID?) -> String {
         guard let id else { return "<none>" }
         if let info = deviceInfo(id) {

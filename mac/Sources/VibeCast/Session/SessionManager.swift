@@ -426,19 +426,39 @@ final class SessionManager: ServerDelegate {
             send(conn, env)
         }
         let previousInput = VoiceAudioDeviceManager.defaultInputDevice()
-        let previousInputLabel = VoiceAudioDeviceManager.deviceLabel(previousInput)
-        guard VoiceAudioDeviceManager.setDefaultInputDevice(device.id) else {
-            send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
-                                         state: "error", message: "无法切换 macOS 默认输入设备",
-                                         receivedBytes: nil))
-            return
+        let typelessCurrentVirtualInput = previousInput
+            .flatMap { VoiceAudioDeviceManager.device($0) }
+            .flatMap { candidate -> VoiceAudioDevice? in
+                guard settings.provider == .typeless,
+                      candidate.id != device.id,
+                      candidate.hasInput,
+                      candidate.hasOutput,
+                      candidate.isVirtual else {
+                    return nil
+                }
+                return candidate
+            }
+        let relayDevice = typelessCurrentVirtualInput ?? device
+        let previousInputToRestore: AudioDeviceID?
+        if let typelessCurrentVirtualInput {
+            previousInputToRestore = nil
+            delegate?.sessionDidLog("voice_input_route provider=typeless mode=current_virtual_input target=\(typelessCurrentVirtualInput.name) uid=\(typelessCurrentVirtualInput.uid) default=\(VoiceAudioDeviceManager.deviceLabel(previousInput))")
+        } else {
+            previousInputToRestore = previousInput
+            let previousInputLabel = VoiceAudioDeviceManager.deviceLabel(previousInput)
+            guard VoiceAudioDeviceManager.setDefaultInputDevice(device.id) else {
+                send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                             state: "error", message: "无法切换 macOS 默认输入设备",
+                                             receivedBytes: nil))
+                return
+            }
+            let currentInput = VoiceAudioDeviceManager.defaultInputDevice()
+            let inputSwitched = currentInput.map { $0 == device.id } ?? false
+            delegate?.sessionDidLog("voice_input_switch previous=\(previousInputLabel) target=\(device.name) current=\(VoiceAudioDeviceManager.deviceLabel(currentInput)) ok=\(inputSwitched)")
         }
-        let currentInput = VoiceAudioDeviceManager.defaultInputDevice()
-        let inputSwitched = currentInput.map { $0 == device.id } ?? false
-        delegate?.sessionDidLog("voice_input_switch from=\(previousInputLabel) to=\(device.name) current=\(VoiceAudioDeviceManager.deviceLabel(currentInput)) ok=\(inputSwitched)")
         let relay = VoiceAudioRelay()
-        guard relay.start(deviceUID: device.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
-            if let previousInput { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInput) }
+        guard relay.start(deviceUID: relayDevice.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
+            if let previousInputToRestore { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInputToRestore) }
             send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                          state: "error", message: "无法向虚拟麦克风输出音频",
                                          receivedBytes: nil))
@@ -449,9 +469,9 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         voiceStates[key] = VoiceRelayState(triggerMode: settings.triggerMode,
                                            shortcut: settings.shortcut,
-                                           previousInputDevice: previousInput,
+                                           previousInputDevice: previousInputToRestore,
                                            relay: relay,
-                                           deviceName: device.name)
+                                           deviceName: relayDevice.name)
         lock.unlock()
 
         send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
@@ -476,7 +496,7 @@ final class SessionManager: ServerDelegate {
                 self.lock.unlock()
 
                 let hotkey = self.voiceStates[key]?.hotkeyPressed == true
-                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(device.name) provider=\(voiceSettings.provider.rawValue) trigger=\(voiceSettings.triggerMode.rawValue) key=\(voiceSettings.shortcut.key) hotkey=\(hotkey)")
+                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(relayDevice.name) provider=\(voiceSettings.provider.rawValue) trigger=\(voiceSettings.triggerMode.rawValue) key=\(voiceSettings.shortcut.key) hotkey=\(hotkey)")
                 self.send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                                     status: .focused, errorCode: nil, message: nil))
                 let started = hotkey
