@@ -148,6 +148,7 @@ function handle(m: ServerMessage) {
       break;
     case "voice_environment":
       voiceEnvironment = m;
+      if (!m.installed && m.message) setStatus(m.message);
       render();
       break;
     case "voice_settings":
@@ -437,7 +438,17 @@ function renderVoiceEnvironment(): HTMLElement {
   toggleRow.append(toggle, toggleText);
 
   section.append(title, explain, toggleRow);
-  if (!voiceSettings.enabled) return section;
+  if (!voiceSettings.enabled) {
+    if (voiceEnvironment?.message) {
+      const status = el("div", "cfg-pill cfg-pill--warn");
+      status.textContent = i18n.t("cfg.voiceMissing");
+      const detail = document.createElement("p");
+      detail.className = "cfg-hint";
+      detail.textContent = voiceEnvironment.message;
+      section.append(status, detail);
+    }
+    return section;
+  }
 
   const status = el("div", voiceEnvironment?.installed ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
   status.textContent = voiceEnvironment?.installed

@@ -919,7 +919,7 @@ final class SessionManager: ServerDelegate {
                 next.managedOriginalAudioDevice = nil
                 next.managedVirtualAudioDevice = nil
                 next = config.updateVoiceRelaySettings(next)
-                delegate?.sessionDidLog("voice_relay enable_failed device=<none>")
+                delegate?.sessionDidLog("voice_relay enable_failed device=<none> message=\(env.message ?? "<none>")")
                 send(conn, VoiceSettingsMessage(settings: next))
                 send(conn, env)
                 return

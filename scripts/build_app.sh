@@ -156,7 +156,8 @@ DRIVER_ARCH_ARGS=()
 for arch in $SWIFT_ARCHS; do
   DRIVER_ARCH_ARGS+=(-arch "$arch")
 done
-clang "${DRIVER_ARCH_ARGS[@]}" -dynamiclib -framework CoreAudio -framework CoreFoundation \
+clang "${DRIVER_ARCH_ARGS[@]}" -dynamiclib -install_name "@rpath/VibeCastVirtualMic" \
+  -framework CoreAudio -framework CoreFoundation \
   -o "$DRIVER_BUNDLE/Contents/MacOS/VibeCastVirtualMic" \
   "$DRIVER_SRC/VibeCastVirtualMic.c"
 verify_binary_archs "$DRIVER_BUNDLE/Contents/MacOS/VibeCastVirtualMic"

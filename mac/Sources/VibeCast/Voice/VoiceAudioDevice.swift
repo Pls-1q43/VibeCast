@@ -233,20 +233,27 @@ enum VoiceVirtualMicInstaller {
             return InstallResult(installed: false, message: "未找到内包的 VibeCastVirtualMic.driver，请重新安装 VibeCast")
         }
 
+        let sourcePath = sourceURL.path
         let command = [
-            "mkdir -p /Library/Audio/Plug-Ins/HAL",
-            "rm -rf \(shellQuote(destinationPath))",
-            "ditto --norsrc --noqtn --noextattr --noacl \(shellQuote(sourceURL.path)) \(shellQuote(destinationPath))",
-            "xattr -cr \(shellQuote(destinationPath)) 2>/dev/null || true",
-            "killall coreaudiod 2>/dev/null || true"
-        ].joined(separator: " && ")
+            "set -e",
+            "/bin/mkdir -p /Library/Audio/Plug-Ins/HAL",
+            "/bin/rm -rf \(shellQuote(destinationPath))",
+            "/usr/bin/ditto --norsrc \(shellQuote(sourcePath)) \(shellQuote(destinationPath))",
+            "/usr/bin/xattr -cr \(shellQuote(destinationPath)) 2>/dev/null || true",
+            "/usr/sbin/chown -R root:wheel \(shellQuote(destinationPath))",
+            "/bin/chmod -R go-w \(shellQuote(destinationPath))",
+            "/usr/bin/codesign --verify --strict \(shellQuote(destinationPath))",
+            "/bin/test -x \(shellQuote(destinationPath + "/Contents/MacOS/VibeCastVirtualMic"))",
+            "/usr/bin/killall coreaudiod 2>/dev/null || true"
+        ].joined(separator: "; ")
 
-        let script = "do shell script \(appleScriptString(command)) with administrator privileges"
+        let script = "do shell script \(appleScriptString(command + " 2>&1")) with administrator privileges"
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", script]
-        let pipe = Pipe()
-        process.standardError = pipe
+        let outputPipe = Pipe()
+        process.standardOutput = outputPipe
+        process.standardError = outputPipe
         do {
             try process.run()
             process.waitUntilExit()
@@ -254,10 +261,10 @@ enum VoiceVirtualMicInstaller {
             return InstallResult(installed: false, message: "无法启动虚拟麦克风安装器：\(error.localizedDescription)")
         }
 
+        let outputData = outputPipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: outputData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard process.terminationStatus == 0 else {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let detail = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            return InstallResult(installed: false, message: detail?.isEmpty == false ? "虚拟麦克风安装失败：\(detail!)" : "虚拟麦克风安装已取消或失败")
+            return InstallResult(installed: false, message: output?.isEmpty == false ? "虚拟麦克风安装失败：\(output!)" : "虚拟麦克风安装已取消或失败")
         }
 
         for _ in 0..<40 {
@@ -266,7 +273,12 @@ enum VoiceVirtualMicInstaller {
             }
             Thread.sleep(forTimeInterval: 0.25)
         }
-        return InstallResult(installed: false, message: "已复制虚拟麦克风驱动，但 CoreAudio 尚未加载到 VibeCast Virtual Mic；请重启 VibeCast 或 macOS 后再试")
+        let destinationExists = FileManager.default.fileExists(atPath: destinationPath)
+        let suffix = output?.isEmpty == false ? " 安装输出：\(output!)" : ""
+        return InstallResult(installed: false,
+                             message: destinationExists
+                                ? "已复制虚拟麦克风驱动，但 CoreAudio 尚未加载到 VibeCast Virtual Mic；请重启 VibeCast 或 macOS 后再试。\(suffix)"
+                                : "授权完成，但未能在 HAL 目录中找到 VibeCastVirtualMic.driver。\(suffix)")
     }
 
     private static func bundledDriverURL() -> URL? {
