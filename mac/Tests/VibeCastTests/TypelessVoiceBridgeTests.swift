@@ -84,6 +84,10 @@ final class TypelessVoiceBridgeTests: XCTestCase {
         XCTAssertEqual(selected["deviceId"] as? String, "default")
         XCTAssertEqual(selected["kind"] as? String, "audioinput")
         XCTAssertEqual(selected["label"] as? String, "系统默认麦克风")
+        let devices = root["microphoneDevices"] as! [[String: Any]]
+        XCTAssertEqual(devices.count, 2)
+        XCTAssertEqual(devices[1]["deviceId"] as? String, "default")
+        XCTAssertEqual(devices[1]["label"] as? String, "系统默认麦克风")
 
         let reboundStatus = TypelessVoiceBridge.status(virtualDeviceName: "BlackHole 2ch", configURLs: [config])
         XCTAssertTrue(reboundStatus.matchesVirtualMic)

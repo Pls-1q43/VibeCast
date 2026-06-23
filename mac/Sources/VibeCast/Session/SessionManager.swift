@@ -426,12 +426,16 @@ final class SessionManager: ServerDelegate {
             send(conn, env)
         }
         let previousInput = VoiceAudioDeviceManager.defaultInputDevice()
+        let previousInputLabel = VoiceAudioDeviceManager.deviceLabel(previousInput)
         guard VoiceAudioDeviceManager.setDefaultInputDevice(device.id) else {
             send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                          state: "error", message: "无法切换 macOS 默认输入设备",
                                          receivedBytes: nil))
             return
         }
+        let currentInput = VoiceAudioDeviceManager.defaultInputDevice()
+        let inputSwitched = currentInput.map { $0 == device.id } ?? false
+        delegate?.sessionDidLog("voice_input_switch from=\(previousInputLabel) to=\(device.name) current=\(VoiceAudioDeviceManager.deviceLabel(currentInput)) ok=\(inputSwitched)")
         let relay = VoiceAudioRelay()
         guard relay.start(deviceUID: device.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
             if let previousInput { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInput) }
@@ -460,6 +464,9 @@ final class SessionManager: ServerDelegate {
             let outcome = FocusController.focus(targetId: msg.targetId, sessionId: msg.sessionId, profile: profile)
             switch outcome {
             case .focused(let binding):
+                if voiceSettings.provider == .typeless {
+                    Thread.sleep(forTimeInterval: 0.15)
+                }
                 self.lock.lock()
                 self.activeBinding = binding
                 if var state = self.voiceStates[key] {
@@ -556,7 +563,10 @@ final class SessionManager: ServerDelegate {
         }
         state.relay?.stop()
         if let previous = state.previousInputDevice {
-            _ = VoiceAudioDeviceManager.setDefaultInputDevice(previous)
+            let restored = VoiceAudioDeviceManager.setDefaultInputDevice(previous)
+            let current = VoiceAudioDeviceManager.defaultInputDevice()
+            let inputRestored = restored && (current.map { $0 == previous } ?? false)
+            delegate?.sessionDidLog("voice_input_restore to=\(VoiceAudioDeviceManager.deviceLabel(previous)) current=\(VoiceAudioDeviceManager.deviceLabel(current)) ok=\(inputRestored)")
         }
     }
 
@@ -945,7 +955,7 @@ final class SessionManager: ServerDelegate {
             send(conn, VoiceAudioDeviceManager.voiceEnvironment(settings: next))
             broadcastVoiceSettings(next, excluding: conn.id)
         } else if next.provider == .typeless {
-            let (env, boundSettings) = VoiceAudioDeviceManager.bindTypelessToVirtualMic(settings: next)
+            let (env, boundSettings) = VoiceAudioDeviceManager.bindTypelessToVirtualMic(settings: next, reloadRunningApp: true)
             next = boundSettings.normalized()
             next.enabled = true
             next = config.updateVoiceRelaySettings(next)
@@ -981,7 +991,7 @@ final class SessionManager: ServerDelegate {
     }
 
     private func handleBindTypelessMic(_ conn: Connection) {
-        let (result, settings) = VoiceAudioDeviceManager.bindTypelessToVirtualMic(settings: config.voiceRelaySettings)
+        let (result, settings) = VoiceAudioDeviceManager.bindTypelessToVirtualMic(settings: config.voiceRelaySettings, reloadRunningApp: true)
         let saved = config.updateVoiceRelaySettings(settings)
         delegate?.sessionDidLog("typeless_mic bound=\(result.typelessMatchesVirtualMic == true) device=\(result.typelessAudioDevice ?? "<none>")")
         send(conn, VoiceSettingsMessage(settings: saved))

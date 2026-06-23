@@ -117,7 +117,8 @@ enum VoiceAudioDeviceManager {
         return (env, nextSettings)
     }
 
-    static func bindTypelessToVirtualMic(settings: VoiceRelaySettings = .disabled) -> (VoiceEnvironmentMessage, VoiceRelaySettings) {
+    static func bindTypelessToVirtualMic(settings: VoiceRelaySettings = .disabled,
+                                         reloadRunningApp: Bool = false) -> (VoiceEnvironmentMessage, VoiceRelaySettings) {
         guard let device = dedicatedVoiceDevice() else {
             let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: nil)
             let typeless = TypelessVoiceBridge.status(virtualDeviceName: nil)
@@ -142,7 +143,8 @@ enum VoiceAudioDeviceManager {
         }
         let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device.name)
         let typeless = TypelessVoiceBridge.bindToVirtualMic(device.name, deviceUID: device.uid,
-                                                            originalAudioDevice: settings.managedOriginalAudioDevice)
+                                                            originalAudioDevice: settings.managedOriginalAudioDevice,
+                                                            reloadRunningApp: reloadRunningApp)
         var nextSettings = settings
         nextSettings.managedOriginalAudioDevice = typeless.originalAudioDevice ?? settings.managedOriginalAudioDevice
         nextSettings.managedVirtualAudioDevice = device.name
@@ -206,6 +208,14 @@ enum VoiceAudioDeviceManager {
             return nil
         }
         return device
+    }
+
+    static func deviceLabel(_ id: AudioDeviceID?) -> String {
+        guard let id else { return "<none>" }
+        if let info = deviceInfo(id) {
+            return "\(info.name) uid=\(info.uid)"
+        }
+        return "#\(id)"
     }
 
     @discardableResult

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 struct TypelessVoiceStatus: Equatable {
     let installed: Bool
@@ -12,6 +13,7 @@ enum TypelessVoiceBridge {
     private static let selectedMicrophonePath = ["selectedMicrophoneDevice"]
     private static let microphoneDevicesPath = ["microphoneDevices"]
     private static let defaultDeviceId = "default"
+    private static let bundleIdentifier = "now.typeless.desktop"
 
     private static let candidateFileNames = [
         "app-settings.json",
@@ -103,6 +105,7 @@ enum TypelessVoiceBridge {
 
     @discardableResult
     static func bindToVirtualMic(_ deviceName: String, deviceUID: String? = nil, originalAudioDevice: String? = nil,
+                                 reloadRunningApp: Bool = false,
                                  configURLs: [URL] = defaultConfigURLs) -> TypelessVoiceStatus {
         let existing = existingConfigURLs(configURLs)
         guard !existing.isEmpty else {
@@ -124,7 +127,9 @@ enum TypelessVoiceBridge {
                 setValue(selected, in: &root, at: selectedMicrophonePath)
                 updated = true
             } else if dictionaryValue(in: root, at: selectedMicrophonePath) != nil {
-                setValue(defaultMicrophoneDevice(for: deviceName), in: &root, at: selectedMicrophonePath)
+                let defaultDevice = defaultMicrophoneDevice(for: deviceName)
+                setValue(defaultDevice, in: &root, at: selectedMicrophonePath)
+                updated = ensureDefaultMicrophoneDevice(defaultDevice, in: &root) || updated
                 updated = true
             }
 
@@ -143,10 +148,20 @@ enum TypelessVoiceBridge {
             let next = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try next.write(to: config.url, options: .atomic)
             let boundToDefault = dictionaryValue(in: root, at: selectedMicrophonePath)?["deviceId"] as? String == defaultDeviceId
+            let reload = reloadRunningApp ? reloadRunningTypelessIfNeeded() : nil
+            let reloadMessage: String
+            switch reload {
+            case .some(true):
+                reloadMessage = "；已重启 Typeless 以加载新麦克风配置"
+            case .some(false):
+                reloadMessage = "；请手动重启 Typeless 以加载新麦克风配置"
+            case .none:
+                reloadMessage = ""
+            }
             return TypelessVoiceStatus(installed: true, audioDevice: boundToDefault ? "系统默认麦克风" : deviceName, matchesVirtualMic: true,
                                        message: boundToDefault
-                                            ? "已将 Typeless 麦克风绑定到系统默认输入；VibeCast 语音时会临时切到 \(deviceName)"
-                                            : "已将 Typeless 麦克风绑定到 \(deviceName)",
+                                            ? "已将 Typeless 麦克风绑定到系统默认输入；VibeCast 语音时会临时切到 \(deviceName)\(reloadMessage)"
+                                            : "已将 Typeless 麦克风绑定到 \(deviceName)\(reloadMessage)",
                                        originalAudioDevice: originalAudioDevice ?? config.audioDevice)
         } catch {
             return TypelessVoiceStatus(installed: true, audioDevice: readAudioDevice(configURL: config.url),
@@ -210,6 +225,41 @@ enum TypelessVoiceBridge {
             "groupId": defaultDeviceId,
             "description": "VibeCast will switch macOS default input to \(deviceName)"
         ]
+    }
+
+    private static func ensureDefaultMicrophoneDevice(_ defaultDevice: [String: Any], in root: inout [String: Any]) -> Bool {
+        guard var devices = arrayValue(in: root, at: microphoneDevicesPath) else { return false }
+        if let index = devices.firstIndex(where: { ($0["deviceId"] as? String) == defaultDeviceId }) {
+            devices[index] = defaultDevice
+        } else {
+            devices.append(defaultDevice)
+        }
+        setValue(devices, in: &root, at: microphoneDevicesPath)
+        return true
+    }
+
+    private static func reloadRunningTypelessIfNeeded() -> Bool? {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        guard !running.isEmpty else { return nil }
+        for app in running {
+            app.terminate()
+        }
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline && running.contains(where: { !$0.isTerminated }) {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        process.arguments = ["-b", bundleIdentifier]
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
     }
 
     private static func microphoneDeviceMatches(_ device: [String: Any], deviceName: String, deviceUID: String?) -> Bool {
