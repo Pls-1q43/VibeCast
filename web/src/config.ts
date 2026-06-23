@@ -467,6 +467,7 @@ function renderVoiceEnvironment(): HTMLElement {
         voiceEnvironment.message ?? "",
       ].filter(Boolean).join(" · ")
     : i18n.t("cfg.loading");
+  const providerSetupHint = renderVoiceProviderSetupHint(voiceSettings.provider);
 
   const provider = select(voiceSettings.provider, voiceProviderOptions(), (v) => {
     voiceSettings = normalizeVoiceSettings({ ...voiceSettings, provider: v as VoiceInputProvider, ...providerDefaults(v as VoiceInputProvider) });
@@ -537,11 +538,37 @@ function renderVoiceEnvironment(): HTMLElement {
           voiceEnvironment.shandianshuoMessage ?? "",
         ].filter(Boolean).join(" · ")
       : i18n.t("cfg.loading");
-    section.append(status, detail, shandianshuoStatus, shandianshuoDetail, controls, actions);
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(shandianshuoStatus, shandianshuoDetail, controls, actions);
   } else {
-    section.append(status, detail, controls, actions);
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(controls, actions);
   }
   return section;
+}
+
+function renderVoiceProviderSetupHint(provider: VoiceInputProvider): HTMLElement | null {
+  let key = "";
+  switch (provider) {
+    case "wechat_input":
+      key = "cfg.voiceProviderWechatHint";
+      break;
+    case "typeless":
+      key = "cfg.voiceProviderTypelessHint";
+      break;
+    case "doubao_input":
+      key = "cfg.voiceProviderDoubaoHint";
+      break;
+    default:
+      break;
+  }
+  if (!key) return null;
+  const hint = document.createElement("p");
+  hint.className = "cfg-hint";
+  hint.textContent = i18n.t(key);
+  return hint;
 }
 
 function renderTargetList(): HTMLElement {

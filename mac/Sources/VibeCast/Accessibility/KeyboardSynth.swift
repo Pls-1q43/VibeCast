@@ -72,14 +72,28 @@ enum KeyboardSynth {
             case "option", "opt", "alt": f.insert(.maskAlternate)
             case "control", "ctrl": f.insert(.maskControl)
             case "shift": f.insert(.maskShift)
+            case "fn", "function": f.insert(.maskSecondaryFn)
             default: break
             }
         }
         return f
     }
 
+    private static func normalizedKey(_ key: String) -> String {
+        key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func isFunctionKey(_ key: String) -> Bool {
+        switch normalizedKey(key) {
+        case "fn", "function":
+            return true
+        default:
+            return false
+        }
+    }
+
     private static func implicitFlag(for key: String) -> CGEventFlags {
-        switch key.lowercased() {
+        switch normalizedKey(key) {
         case "left_command", "leftcommand", "left_cmd", "leftcmd", "command_left", "cmd_left",
              "right_command", "rightcommand", "right_cmd", "rightcmd", "command_right", "cmd_right":
             return .maskCommand
@@ -91,6 +105,8 @@ enum KeyboardSynth {
             return .maskControl
         case "left_shift", "leftshift", "shift_left", "right_shift", "rightshift", "shift_right":
             return .maskShift
+        case "fn", "function":
+            return .maskSecondaryFn
         default:
             return []
         }
@@ -99,6 +115,11 @@ enum KeyboardSynth {
     /// 向系统投递一个快捷键（键按下+抬起）。返回是否成功映射键码。
     @discardableResult
     static func press(_ shortcut: KeyShortcut) -> Bool {
+        if isFunctionKey(shortcut.key) {
+            guard postFunction(shortcut, keyDown: true) else { return false }
+            Thread.sleep(forTimeInterval: 0.035)
+            return postFunction(shortcut, keyDown: false)
+        }
         guard let code = keyCode(for: shortcut) else { return false }
         let src = CGEventSource(stateID: .hidSystemState)
         let flags = flags(for: shortcut.modifiers)
@@ -127,6 +148,9 @@ enum KeyboardSynth {
     }
 
     private static func post(_ shortcut: KeyShortcut, keyDown: Bool) -> Bool {
+        if isFunctionKey(shortcut.key) {
+            return postFunction(shortcut, keyDown: keyDown)
+        }
         guard let code = keyCode(for: shortcut),
               let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState),
                                   virtualKey: code,
@@ -139,7 +163,19 @@ enum KeyboardSynth {
         return true
     }
 
+    private static func postFunction(_ shortcut: KeyShortcut, keyDown: Bool) -> Bool {
+        guard let event = CGEvent(keyboardEventSource: CGEventSource(stateID: .hidSystemState),
+                                  virtualKey: CGKeyCode(kVK_Function),
+                                  keyDown: keyDown) else {
+            return false
+        }
+        let explicit = flags(for: shortcut.modifiers)
+        event.flags = keyDown ? explicit.union(.maskSecondaryFn) : explicit
+        event.post(tap: .cghidEventTap)
+        return true
+    }
+
     private static func keyCode(for shortcut: KeyShortcut) -> CGKeyCode? {
-        keyCodes[shortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()]
+        keyCodes[normalizedKey(shortcut.key)]
     }
 }

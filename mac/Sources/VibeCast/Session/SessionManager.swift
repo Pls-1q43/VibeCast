@@ -462,10 +462,11 @@ final class SessionManager: ServerDelegate {
                 }
                 self.lock.unlock()
 
-                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(device.name) provider=\(voiceSettings.provider.rawValue) key=\(voiceSettings.shortcut.key)")
+                let hotkey = self.voiceStates[key]?.hotkeyPressed == true
+                self.delegate?.sessionDidLog("voice_start \(msg.targetId.rawValue) codec=\(msg.codec) rate=\(msg.sampleRate) device=\(device.name) provider=\(voiceSettings.provider.rawValue) trigger=\(voiceSettings.triggerMode.rawValue) key=\(voiceSettings.shortcut.key) hotkey=\(hotkey)")
                 self.send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                                     status: .focused, errorCode: nil, message: nil))
-                let started = self.voiceStates[key]?.hotkeyPressed == true
+                let started = hotkey
                 self.send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                                   state: started ? "started" : "error",
                                                   message: started ? nil : "语音输入快捷键无法映射",
