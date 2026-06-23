@@ -71,6 +71,7 @@ final class SessionManager: ServerDelegate {
         var previousInputDevice: AudioDeviceID?
         var relay: VoiceAudioRelay?
         var deviceName: String?
+        var reloadTypelessAfterStop = false
     }
 
     init(serverName: String, accessibilityGranted: Bool, config: TargetConfigStore = TargetConfigStore(),
@@ -444,6 +445,17 @@ final class SessionManager: ServerDelegate {
                                          receivedBytes: nil))
             return
         }
+        let typelessReloadedForCapture: Bool
+        if settings.provider == .typeless {
+            let reloaded = TypelessVoiceBridge.restartOrLaunchApp()
+            typelessReloadedForCapture = reloaded
+            delegate?.sessionDidLog("typeless_capture_restart launched=\(reloaded)")
+            if typelessReloadedForCapture {
+                Thread.sleep(forTimeInterval: 1.2)
+            }
+        } else {
+            typelessReloadedForCapture = false
+        }
 
         let key = VoiceSessionKey(connectionId: conn.id, sessionId: msg.sessionId, targetId: msg.targetId)
         lock.lock()
@@ -451,7 +463,8 @@ final class SessionManager: ServerDelegate {
                                            shortcut: settings.shortcut,
                                            previousInputDevice: previousInput,
                                            relay: relay,
-                                           deviceName: device.name)
+                                           deviceName: device.name,
+                                           reloadTypelessAfterStop: typelessReloadedForCapture)
         lock.unlock()
 
         send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
@@ -567,6 +580,12 @@ final class SessionManager: ServerDelegate {
             let current = VoiceAudioDeviceManager.defaultInputDevice()
             let inputRestored = restored && (current.map { $0 == previous } ?? false)
             delegate?.sessionDidLog("voice_input_restore to=\(VoiceAudioDeviceManager.deviceLabel(previous)) current=\(VoiceAudioDeviceManager.deviceLabel(current)) ok=\(inputRestored)")
+            if state.reloadTypelessAfterStop {
+                DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 3.0) { [weak self] in
+                    let reloaded = TypelessVoiceBridge.reloadRunningAppIfNeeded()
+                    self?.delegate?.sessionDidLog("typeless_restore_reload result=\(reloaded.map { String($0) } ?? "not_running")")
+                }
+            }
         }
     }
 

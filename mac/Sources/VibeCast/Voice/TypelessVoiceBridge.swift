@@ -238,6 +238,26 @@ enum TypelessVoiceBridge {
         return true
     }
 
+    @discardableResult
+    static func reloadRunningAppIfNeeded() -> Bool? {
+        reloadRunningTypelessIfNeeded()
+    }
+
+    @discardableResult
+    static func restartOrLaunchApp() -> Bool {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+        for app in running {
+            app.terminate()
+        }
+
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline && running.contains(where: { !$0.isTerminated }) {
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+
+        return launchApp()
+    }
+
     private static func reloadRunningTypelessIfNeeded() -> Bool? {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
         guard !running.isEmpty else { return nil }
@@ -250,6 +270,10 @@ enum TypelessVoiceBridge {
             Thread.sleep(forTimeInterval: 0.05)
         }
 
+        return launchApp()
+    }
+
+    private static func launchApp() -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         process.arguments = ["-b", bundleIdentifier]
