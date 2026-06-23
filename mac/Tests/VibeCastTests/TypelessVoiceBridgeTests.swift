@@ -116,7 +116,7 @@ final class TypelessVoiceBridgeTests: XCTestCase {
         let selected = root["selectedMicrophoneDevice"] as! [String: Any]
         XCTAssertEqual(selected["deviceId"] as? String, "default")
         XCTAssertEqual(selected["label"] as? String, "系统默认麦克风")
-        XCTAssertTrue(root["preferredBuiltInMicId"] is NSNull)
+        XCTAssertEqual(root["preferredBuiltInMicId"] as? String, "default")
         let devices = root["microphoneDevices"] as! [[String: Any]]
         XCTAssertEqual(devices.count, 2)
         XCTAssertEqual(devices[1]["deviceId"] as? String, "default")

@@ -140,7 +140,7 @@ enum TypelessVoiceBridge {
                 updated = true
             }
             if hasKey(in: root, at: preferredBuiltInMicIdPath) {
-                setValue(NSNull(), in: &root, at: preferredBuiltInMicIdPath)
+                setValue(defaultDeviceId, in: &root, at: preferredBuiltInMicIdPath)
                 updated = true
             }
 
