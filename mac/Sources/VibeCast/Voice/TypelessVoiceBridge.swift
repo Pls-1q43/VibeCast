@@ -9,7 +9,11 @@ struct TypelessVoiceStatus: Equatable {
 }
 
 enum TypelessVoiceBridge {
+    private static let selectedMicrophonePath = ["selectedMicrophoneDevice"]
+    private static let microphoneDevicesPath = ["microphoneDevices"]
+
     private static let candidateFileNames = [
+        "app-settings.json",
         "config.json",
         "settings.json",
         "preferences.json",
@@ -21,23 +25,36 @@ enum TypelessVoiceBridge {
         ["audio_device"],
         ["audioDevice"],
         ["audioDeviceName"],
+        ["audioDeviceId"],
         ["audioInputDevice"],
+        ["audioInputDeviceId"],
         ["audioInputDeviceName"],
         ["inputDevice"],
+        ["inputDeviceId"],
         ["inputDeviceName"],
         ["microphone"],
+        ["microphoneId"],
+        ["microphone_id"],
         ["microphoneName"],
         ["microphoneDevice"],
+        ["microphoneDeviceId"],
         ["microphoneDeviceName"],
         ["selectedMicrophone"],
+        ["selectedMicrophoneId"],
         ["selectedMicrophoneName"],
         ["recordingDevice"],
+        ["recordingDeviceId"],
         ["recordingDeviceName"],
         ["settings", "audio_device"],
+        ["settings", "audioDeviceId"],
         ["settings", "audioDeviceName"],
+        ["settings", "microphoneDeviceId"],
         ["settings", "microphoneDeviceName"],
+        ["audio", "inputDeviceId"],
         ["audio", "inputDeviceName"],
+        ["audio", "microphoneDeviceId"],
         ["audio", "microphoneDeviceName"],
+        ["preferences", "microphoneDeviceId"],
         ["preferences", "microphoneDeviceName"]
     ]
 
@@ -46,6 +63,7 @@ enum TypelessVoiceBridge {
             .appendingPathComponent("Library/Application Support")
         let dirs = [
             appSupport.appendingPathComponent("Typeless"),
+            appSupport.appendingPathComponent("now.typeless.desktop"),
             appSupport.appendingPathComponent("typeless"),
             appSupport.appendingPathComponent("com.typeless.Typeless"),
             appSupport.appendingPathComponent("com.typeless.desktop"),
@@ -58,61 +76,73 @@ enum TypelessVoiceBridge {
         return uniqueURLs(urls)
     }
 
-    static func status(virtualDeviceName: String?, configURLs: [URL] = defaultConfigURLs) -> TypelessVoiceStatus {
-        guard let configURL = firstExistingConfigURL(configURLs) else {
+    static func status(virtualDeviceName: String?, virtualDeviceUID: String? = nil,
+                       configURLs: [URL] = defaultConfigURLs) -> TypelessVoiceStatus {
+        let existing = existingConfigURLs(configURLs)
+        guard !existing.isEmpty else {
             return TypelessVoiceStatus(installed: false, audioDevice: nil, matchesVirtualMic: false,
                                        message: "未检测到 Typeless 麦克风配置", originalAudioDevice: nil)
         }
-        guard let audioDevice = readAudioDevice(configURL: configURL) else {
+        guard let config = firstConfigWithAudioDevice(existing) else {
             return TypelessVoiceStatus(installed: true, audioDevice: nil, matchesVirtualMic: false,
-                                       message: "无法识别 Typeless 麦克风字段", originalAudioDevice: nil)
+                                       message: "无法识别 Typeless 麦克风字段（已扫描 \(existing.count) 个配置文件）",
+                                       originalAudioDevice: nil)
         }
         guard let virtualDeviceName else {
-            return TypelessVoiceStatus(installed: true, audioDevice: audioDevice, matchesVirtualMic: false,
+            return TypelessVoiceStatus(installed: true, audioDevice: config.audioDevice, matchesVirtualMic: false,
                                        message: "需先检测到虚拟麦克风", originalAudioDevice: nil)
         }
-        let matches = audioDevice == virtualDeviceName
-        return TypelessVoiceStatus(installed: true, audioDevice: audioDevice, matchesVirtualMic: matches,
+        let matches = config.values.contains { value in
+            value == virtualDeviceName || (virtualDeviceUID != nil && value == virtualDeviceUID)
+        }
+        return TypelessVoiceStatus(installed: true, audioDevice: config.audioDevice, matchesVirtualMic: matches,
                                    message: matches ? nil : "Typeless 当前未绑定到虚拟麦克风",
                                    originalAudioDevice: nil)
     }
 
     @discardableResult
-    static func bindToVirtualMic(_ deviceName: String, originalAudioDevice: String? = nil,
+    static func bindToVirtualMic(_ deviceName: String, deviceUID: String? = nil, originalAudioDevice: String? = nil,
                                  configURLs: [URL] = defaultConfigURLs) -> TypelessVoiceStatus {
-        guard let configURL = firstExistingConfigURL(configURLs) else {
+        let existing = existingConfigURLs(configURLs)
+        guard !existing.isEmpty else {
             return TypelessVoiceStatus(installed: false, audioDevice: nil, matchesVirtualMic: false,
                                        message: "未检测到 Typeless 麦克风配置", originalAudioDevice: originalAudioDevice)
         }
+        guard let config = firstConfigWithAudioDevice(existing) else {
+            return TypelessVoiceStatus(installed: true, audioDevice: nil, matchesVirtualMic: false,
+                                       message: "未找到可写入的 Typeless 麦克风字段（已扫描 \(existing.count) 个配置文件）",
+                                       originalAudioDevice: originalAudioDevice)
+        }
+
         do {
-            let data = try Data(contentsOf: configURL)
-            guard var root = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                return TypelessVoiceStatus(installed: true, audioDevice: nil, matchesVirtualMic: false,
-                                           message: "Typeless 配置格式无法识别", originalAudioDevice: originalAudioDevice)
-            }
-            guard let current = readAudioDevice(root: root) else {
-                return TypelessVoiceStatus(installed: true, audioDevice: nil, matchesVirtualMic: false,
-                                           message: "未找到可写入的 Typeless 麦克风字段",
-                                           originalAudioDevice: originalAudioDevice)
-            }
-            try backupConfigIfNeeded(configURL)
+            var root = config.root
+            try backupConfigIfNeeded(config.url)
             var updated = false
-            for path in audioDeviceKeyPaths where stringValue(in: root, at: path) != nil {
-                setString(deviceName, in: &root, at: path)
+
+            if let selected = selectedMicrophoneDevice(for: deviceName, deviceUID: deviceUID, in: root) {
+                setValue(selected, in: &root, at: selectedMicrophonePath)
                 updated = true
             }
+
+            for path in audioDeviceStringPaths(in: root) where stringValue(in: root, at: path) != nil {
+                let replacement = isIdentifierPath(path) ? (deviceUID ?? deviceName) : deviceName
+                setValue(replacement, in: &root, at: path)
+                updated = true
+            }
+
             guard updated else {
-                return TypelessVoiceStatus(installed: true, audioDevice: current, matchesVirtualMic: false,
-                                           message: "未找到可写入的 Typeless 麦克风字段",
+                return TypelessVoiceStatus(installed: true, audioDevice: config.audioDevice, matchesVirtualMic: false,
+                                           message: "未在 Typeless microphoneDevices 中找到 \(deviceName)；请先在 Typeless 麦克风设置里刷新/选择一次 BlackHole 2ch",
                                            originalAudioDevice: originalAudioDevice)
             }
+
             let next = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-            try next.write(to: configURL, options: .atomic)
+            try next.write(to: config.url, options: .atomic)
             return TypelessVoiceStatus(installed: true, audioDevice: deviceName, matchesVirtualMic: true,
                                        message: "已将 Typeless 麦克风绑定到 \(deviceName)",
-                                       originalAudioDevice: originalAudioDevice ?? current)
+                                       originalAudioDevice: originalAudioDevice ?? config.audioDevice)
         } catch {
-            return TypelessVoiceStatus(installed: true, audioDevice: readAudioDevice(configURL: configURL),
+            return TypelessVoiceStatus(installed: true, audioDevice: readAudioDevice(configURL: config.url),
                                        matchesVirtualMic: false,
                                        message: "写入 Typeless 配置失败：\(error.localizedDescription)",
                                        originalAudioDevice: originalAudioDevice)
@@ -123,21 +153,29 @@ enum TypelessVoiceBridge {
     static func restoreIfManaged(originalAudioDevice: String?, virtualAudioDevice: String?,
                                  configURLs: [URL] = defaultConfigURLs) -> Bool {
         guard let originalAudioDevice, let virtualAudioDevice,
-              let configURL = firstExistingConfigURL(configURLs),
-              let data = try? Data(contentsOf: configURL),
-              var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              let config = firstConfigWithAudioDevice(existingConfigURLs(configURLs)) else {
             return false
         }
+        var root = config.root
         var updated = false
-        for path in audioDeviceKeyPaths where stringValue(in: root, at: path) == virtualAudioDevice {
-            setString(originalAudioDevice, in: &root, at: path)
+
+        if let selected = dictionaryValue(in: root, at: selectedMicrophonePath),
+           microphoneDeviceMatches(selected, deviceName: virtualAudioDevice, deviceUID: nil),
+           let original = selectedMicrophoneDevice(for: originalAudioDevice, deviceUID: nil, in: root) {
+            setValue(original, in: &root, at: selectedMicrophonePath)
             updated = true
         }
+
+        for path in audioDeviceStringPaths(in: root) where stringValue(in: root, at: path) == virtualAudioDevice {
+            setValue(originalAudioDevice, in: &root, at: path)
+            updated = true
+        }
+
         guard updated else { return false }
         do {
-            try backupConfigIfNeeded(configURL)
+            try backupConfigIfNeeded(config.url)
             let next = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
-            try next.write(to: configURL, options: .atomic)
+            try next.write(to: config.url, options: .atomic)
             return true
         } catch {
             return false
@@ -149,44 +187,126 @@ enum TypelessVoiceBridge {
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return nil
         }
-        return readAudioDevice(root: root)
+        return audioDeviceValues(in: root).first
     }
 
-    private static func readAudioDevice(root: [String: Any]) -> String? {
-        for path in audioDeviceKeyPaths {
-            if let value = stringValue(in: root, at: path), !value.isEmpty {
-                return value
+    private static func selectedMicrophoneDevice(for deviceName: String, deviceUID: String?, in root: [String: Any]) -> [String: Any]? {
+        guard let devices = arrayValue(in: root, at: microphoneDevicesPath) else { return nil }
+        return devices.first { microphoneDeviceMatches($0, deviceName: deviceName, deviceUID: deviceUID) }
+    }
+
+    private static func microphoneDeviceMatches(_ device: [String: Any], deviceName: String, deviceUID: String?) -> Bool {
+        let label = device["label"] as? String
+        let deviceId = device["deviceId"] as? String
+        return label == deviceName || (deviceUID != nil && deviceId == deviceUID)
+    }
+
+    private static func audioDeviceValues(in root: [String: Any]) -> [String] {
+        var values = audioDeviceStringPaths(in: root)
+            .compactMap { stringValue(in: root, at: $0) }
+            .filter { !$0.isEmpty }
+        if let selected = dictionaryValue(in: root, at: selectedMicrophonePath) {
+            values.append(contentsOf: ["label", "deviceId"].compactMap { selected[$0] as? String }.filter { !$0.isEmpty })
+        }
+        return values
+    }
+
+    private static func audioDeviceStringPaths(in root: [String: Any]) -> [[String]] {
+        uniqueKeyPaths(audioDeviceKeyPaths + recursiveAudioDevicePaths(in: root)).filter { path in
+            !path.starts(with: selectedMicrophonePath) && !path.starts(with: microphoneDevicesPath)
+        }
+    }
+
+    private static func recursiveAudioDevicePaths(in root: [String: Any], prefix: [String] = []) -> [[String]] {
+        var result: [[String]] = []
+        for (key, value) in root {
+            let path = prefix + [key]
+            if value is String, isLikelyAudioDevicePath(path) {
+                result.append(path)
+            } else if let dict = value as? [String: Any] {
+                result.append(contentsOf: recursiveAudioDevicePaths(in: dict, prefix: path))
             }
         }
-        return nil
+        return result
+    }
+
+    private static func isLikelyAudioDevicePath(_ path: [String]) -> Bool {
+        guard let last = path.last?.lowercased() else { return false }
+        let joined = path.joined(separator: ".").lowercased()
+        if last.contains("microphone") || last == "mic" || last.contains("micdevice") {
+            return true
+        }
+        if last.contains("inputdevice") || last.contains("recordingdevice") {
+            return true
+        }
+        if joined.contains("audio") && last.contains("device") {
+            return true
+        }
+        if joined.contains("microphone") && (last.contains("id") || last.contains("name") || last.contains("device")) {
+            return true
+        }
+        return false
+    }
+
+    private static func isIdentifierPath(_ path: [String]) -> Bool {
+        guard let last = path.last?.lowercased() else { return false }
+        return last.hasSuffix("id") || last.contains("_id") || last.contains("deviceid")
     }
 
     private static func stringValue(in root: [String: Any], at path: [String]) -> String? {
+        value(in: root, at: path) as? String
+    }
+
+    private static func dictionaryValue(in root: [String: Any], at path: [String]) -> [String: Any]? {
+        value(in: root, at: path) as? [String: Any]
+    }
+
+    private static func arrayValue(in root: [String: Any], at path: [String]) -> [[String: Any]]? {
+        value(in: root, at: path) as? [[String: Any]]
+    }
+
+    private static func value(in root: [String: Any], at path: [String]) -> Any? {
         guard !path.isEmpty else { return nil }
         var current: Any = root
         for key in path {
-            guard let dict = current as? [String: Any],
-                  let next = dict[key] else {
+            if let dict = current as? [String: Any] {
+                current = dict[key] as Any
+            } else if let array = current as? [Any], let index = Int(key), array.indices.contains(index) {
+                current = array[index]
+            } else {
                 return nil
             }
-            current = next
         }
-        return current as? String
+        return current
     }
 
-    private static func setString(_ value: String, in root: inout [String: Any], at path: [String]) {
+    private static func setValue(_ value: Any, in root: inout [String: Any], at path: [String]) {
         guard let first = path.first else { return }
         if path.count == 1 {
             root[first] = value
             return
         }
         var child = root[first] as? [String: Any] ?? [:]
-        setString(value, in: &child, at: Array(path.dropFirst()))
+        setValue(value, in: &child, at: Array(path.dropFirst()))
         root[first] = child
     }
 
-    private static func firstExistingConfigURL(_ urls: [URL]) -> URL? {
-        urls.first { FileManager.default.fileExists(atPath: $0.path) }
+    private static func existingConfigURLs(_ urls: [URL]) -> [URL] {
+        urls.filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private static func firstConfigWithAudioDevice(_ urls: [URL]) -> (url: URL, root: [String: Any], audioDevice: String, values: [String])? {
+        for url in urls {
+            guard let data = try? Data(contentsOf: url),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                continue
+            }
+            let values = audioDeviceValues(in: root)
+            if let audioDevice = values.first {
+                return (url, root, audioDevice, values)
+            }
+        }
+        return nil
     }
 
     private static func candidateConfigURLs(in directory: URL) -> [URL] {
@@ -216,6 +336,19 @@ enum TypelessVoiceBridge {
         for url in urls where !seen.contains(url.path) {
             seen.insert(url.path)
             result.append(url)
+        }
+        return result
+    }
+
+    private static func uniqueKeyPaths(_ paths: [[String]]) -> [[String]] {
+        var seen = Set<String>()
+        var result: [[String]] = []
+        for path in paths {
+            let key = path.joined(separator: "\u{0}")
+            if !seen.contains(key) {
+                seen.insert(key)
+                result.append(path)
+            }
         }
         return result
     }

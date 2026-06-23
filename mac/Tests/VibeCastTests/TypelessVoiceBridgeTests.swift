@@ -32,6 +32,35 @@ final class TypelessVoiceBridgeTests: XCTestCase {
         XCTAssertEqual(root["language"] as? String, "en")
     }
 
+    func testBindCopiesBlackHoleDeviceObjectFromAppSettings() throws {
+        let dir = try makeTempDir()
+        let config = dir.appendingPathComponent("app-settings.json")
+        try """
+        {
+          "microphoneDevices": [
+            {"deviceId":"builtin-id","kind":"audioinput","label":"MacBook Air麦克风","groupId":"builtin-group","description":"Recommended"},
+            {"deviceId":"blackhole-id","kind":"audioinput","label":"BlackHole 2ch","groupId":"blackhole-group","description":""}
+          ],
+          "selectedMicrophoneDevice": {"deviceId":"builtin-id","kind":"audioinput","label":"MacBook Air麦克风","groupId":"builtin-group","description":"Recommended"},
+          "enabledMuteBackgroundAudio": true
+        }
+        """.data(using: .utf8)!.write(to: config)
+
+        let status = TypelessVoiceBridge.bindToVirtualMic("BlackHole 2ch", configURLs: [config])
+
+        XCTAssertTrue(status.matchesVirtualMic)
+        XCTAssertEqual(status.originalAudioDevice, "MacBook Air麦克风")
+        let data = try Data(contentsOf: config)
+        let root = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let selected = root["selectedMicrophoneDevice"] as! [String: Any]
+        XCTAssertEqual(selected["deviceId"] as? String, "blackhole-id")
+        XCTAssertEqual(selected["label"] as? String, "BlackHole 2ch")
+        let devices = root["microphoneDevices"] as! [[String: Any]]
+        XCTAssertEqual(devices[0]["label"] as? String, "MacBook Air麦克风")
+        XCTAssertEqual(devices[1]["deviceId"] as? String, "blackhole-id")
+        XCTAssertEqual(root["enabledMuteBackgroundAudio"] as? Bool, true)
+    }
+
     func testRestoreOnlyWhenCurrentDeviceIsManagedVirtualMic() throws {
         let dir = try makeTempDir()
         let config = dir.appendingPathComponent("settings.json")

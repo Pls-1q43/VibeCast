@@ -19,7 +19,7 @@ enum VoiceAudioDeviceManager {
         let defaultInput = defaultInputDevice()
         let defaultMatches = device != nil && defaultInput == device?.id
         let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device?.name)
-        let typeless = TypelessVoiceBridge.status(virtualDeviceName: device?.name)
+        let typeless = TypelessVoiceBridge.status(virtualDeviceName: device?.name, virtualDeviceUID: device?.uid)
         return VoiceEnvironmentMessage(enabled: settings.enabled,
                                        provider: settings.provider,
                                        triggerMode: settings.triggerMode,
@@ -44,7 +44,7 @@ enum VoiceAudioDeviceManager {
     static func installVirtualMic(settings: VoiceRelaySettings = .disabled) -> VoiceEnvironmentMessage {
         if let device = dedicatedVoiceDevice() {
             let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device.name)
-            let typeless = TypelessVoiceBridge.status(virtualDeviceName: device.name)
+            let typeless = TypelessVoiceBridge.status(virtualDeviceName: device.name, virtualDeviceUID: device.uid)
             return VoiceEnvironmentMessage(enabled: settings.enabled,
                                            provider: settings.provider,
                                            triggerMode: settings.triggerMode,
@@ -92,7 +92,7 @@ enum VoiceAudioDeviceManager {
             return (env, settings)
         }
         let shandianshuo = ShanDianShuoVoiceBridge.bindToVirtualMic(device.name, originalAudioDevice: settings.managedOriginalAudioDevice)
-        let typeless = TypelessVoiceBridge.status(virtualDeviceName: device.name)
+        let typeless = TypelessVoiceBridge.status(virtualDeviceName: device.name, virtualDeviceUID: device.uid)
         var nextSettings = settings
         nextSettings.managedOriginalAudioDevice = shandianshuo.originalAudioDevice ?? settings.managedOriginalAudioDevice
         nextSettings.managedVirtualAudioDevice = device.name
@@ -141,7 +141,8 @@ enum VoiceAudioDeviceManager {
             return (env, settings)
         }
         let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device.name)
-        let typeless = TypelessVoiceBridge.bindToVirtualMic(device.name, originalAudioDevice: settings.managedOriginalAudioDevice)
+        let typeless = TypelessVoiceBridge.bindToVirtualMic(device.name, deviceUID: device.uid,
+                                                            originalAudioDevice: settings.managedOriginalAudioDevice)
         var nextSettings = settings
         nextSettings.managedOriginalAudioDevice = typeless.originalAudioDevice ?? settings.managedOriginalAudioDevice
         nextSettings.managedVirtualAudioDevice = device.name
