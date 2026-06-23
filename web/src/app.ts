@@ -369,7 +369,10 @@ export class App {
     }
 
     if (!VoiceRecorder.isSupported()) {
-      card.setStatus("sync_failed", this.i18n.t("voice.errorCaptureUnavailable", { details: VoiceRecorder.diagnostics() }));
+      card.setStatus("sync_failed", this.i18n.t("voice.errorCaptureUnavailable", {
+        flagUrl: "chrome://flags/#unsafely-treat-insecure-origin-as-secure",
+        origin: location.origin,
+      }));
       return;
     }
 
