@@ -11,6 +11,7 @@ struct TypelessVoiceStatus: Equatable {
 enum TypelessVoiceBridge {
     private static let selectedMicrophonePath = ["selectedMicrophoneDevice"]
     private static let microphoneDevicesPath = ["microphoneDevices"]
+    private static let defaultDeviceId = "default"
 
     private static let candidateFileNames = [
         "app-settings.json",
@@ -93,7 +94,7 @@ enum TypelessVoiceBridge {
                                        message: "需先检测到虚拟麦克风", originalAudioDevice: nil)
         }
         let matches = config.values.contains { value in
-            value == virtualDeviceName || (virtualDeviceUID != nil && value == virtualDeviceUID)
+            value == virtualDeviceName || value == defaultDeviceId || (virtualDeviceUID != nil && value == virtualDeviceUID)
         }
         return TypelessVoiceStatus(installed: true, audioDevice: config.audioDevice, matchesVirtualMic: matches,
                                    message: matches ? nil : "Typeless 当前未绑定到虚拟麦克风",
@@ -122,6 +123,9 @@ enum TypelessVoiceBridge {
             if let selected = selectedMicrophoneDevice(for: deviceName, deviceUID: deviceUID, in: root) {
                 setValue(selected, in: &root, at: selectedMicrophonePath)
                 updated = true
+            } else if dictionaryValue(in: root, at: selectedMicrophonePath) != nil {
+                setValue(defaultMicrophoneDevice(for: deviceName), in: &root, at: selectedMicrophonePath)
+                updated = true
             }
 
             for path in audioDeviceStringPaths(in: root) where stringValue(in: root, at: path) != nil {
@@ -132,14 +136,17 @@ enum TypelessVoiceBridge {
 
             guard updated else {
                 return TypelessVoiceStatus(installed: true, audioDevice: config.audioDevice, matchesVirtualMic: false,
-                                           message: "未在 Typeless microphoneDevices 中找到 \(deviceName)；请先在 Typeless 麦克风设置里刷新/选择一次 BlackHole 2ch",
+                                           message: "未找到可写入的 Typeless 麦克风字段",
                                            originalAudioDevice: originalAudioDevice)
             }
 
             let next = try JSONSerialization.data(withJSONObject: root, options: [.prettyPrinted, .sortedKeys])
             try next.write(to: config.url, options: .atomic)
-            return TypelessVoiceStatus(installed: true, audioDevice: deviceName, matchesVirtualMic: true,
-                                       message: "已将 Typeless 麦克风绑定到 \(deviceName)",
+            let boundToDefault = dictionaryValue(in: root, at: selectedMicrophonePath)?["deviceId"] as? String == defaultDeviceId
+            return TypelessVoiceStatus(installed: true, audioDevice: boundToDefault ? "系统默认麦克风" : deviceName, matchesVirtualMic: true,
+                                       message: boundToDefault
+                                            ? "已将 Typeless 麦克风绑定到系统默认输入；VibeCast 语音时会临时切到 \(deviceName)"
+                                            : "已将 Typeless 麦克风绑定到 \(deviceName)",
                                        originalAudioDevice: originalAudioDevice ?? config.audioDevice)
         } catch {
             return TypelessVoiceStatus(installed: true, audioDevice: readAudioDevice(configURL: config.url),
@@ -160,7 +167,7 @@ enum TypelessVoiceBridge {
         var updated = false
 
         if let selected = dictionaryValue(in: root, at: selectedMicrophonePath),
-           microphoneDeviceMatches(selected, deviceName: virtualAudioDevice, deviceUID: nil),
+           (microphoneDeviceMatches(selected, deviceName: virtualAudioDevice, deviceUID: nil) || selected["deviceId"] as? String == defaultDeviceId),
            let original = selectedMicrophoneDevice(for: originalAudioDevice, deviceUID: nil, in: root) {
             setValue(original, in: &root, at: selectedMicrophonePath)
             updated = true
@@ -193,6 +200,16 @@ enum TypelessVoiceBridge {
     private static func selectedMicrophoneDevice(for deviceName: String, deviceUID: String?, in root: [String: Any]) -> [String: Any]? {
         guard let devices = arrayValue(in: root, at: microphoneDevicesPath) else { return nil }
         return devices.first { microphoneDeviceMatches($0, deviceName: deviceName, deviceUID: deviceUID) }
+    }
+
+    private static func defaultMicrophoneDevice(for deviceName: String) -> [String: Any] {
+        [
+            "deviceId": defaultDeviceId,
+            "kind": "audioinput",
+            "label": "系统默认麦克风",
+            "groupId": defaultDeviceId,
+            "description": "VibeCast will switch macOS default input to \(deviceName)"
+        ]
     }
 
     private static func microphoneDeviceMatches(_ device: [String: Any], deviceName: String, deviceUID: String?) -> Bool {
