@@ -93,6 +93,35 @@ final class TypelessVoiceBridgeTests: XCTestCase {
         XCTAssertTrue(reboundStatus.matchesVirtualMic)
     }
 
+    func testBindHandlesNullSelectedMicrophoneAndPreferredBuiltInMic() throws {
+        let dir = try makeTempDir()
+        let config = dir.appendingPathComponent("app-settings.json")
+        try """
+        {
+          "microphoneDevices": [
+            {"deviceId":"builtin-id","kind":"audioinput","label":"MacBook Pro麦克风","groupId":"builtin-group","description":"Recommended"}
+          ],
+          "selectedMicrophoneDevice": null,
+          "preferredBuiltInMicId": "builtin-id",
+          "enabledMuteBackgroundAudio": true
+        }
+        """.data(using: .utf8)!.write(to: config)
+
+        let status = TypelessVoiceBridge.bindToVirtualMic("BlackHole 2ch", configURLs: [config])
+
+        XCTAssertTrue(status.matchesVirtualMic)
+        XCTAssertEqual(status.originalAudioDevice, "MacBook Pro麦克风")
+        let data = try Data(contentsOf: config)
+        let root = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        let selected = root["selectedMicrophoneDevice"] as! [String: Any]
+        XCTAssertEqual(selected["deviceId"] as? String, "default")
+        XCTAssertEqual(selected["label"] as? String, "系统默认麦克风")
+        XCTAssertTrue(root["preferredBuiltInMicId"] is NSNull)
+        let devices = root["microphoneDevices"] as! [[String: Any]]
+        XCTAssertEqual(devices.count, 2)
+        XCTAssertEqual(devices[1]["deviceId"] as? String, "default")
+    }
+
     func testRestoreOnlyWhenCurrentDeviceIsManagedVirtualMic() throws {
         let dir = try makeTempDir()
         let config = dir.appendingPathComponent("settings.json")

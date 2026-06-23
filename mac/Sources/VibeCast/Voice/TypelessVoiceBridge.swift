@@ -12,6 +12,7 @@ struct TypelessVoiceStatus: Equatable {
 enum TypelessVoiceBridge {
     private static let selectedMicrophonePath = ["selectedMicrophoneDevice"]
     private static let microphoneDevicesPath = ["microphoneDevices"]
+    private static let preferredBuiltInMicIdPath = ["preferredBuiltInMicId"]
     private static let defaultDeviceId = "default"
     private static let bundleIdentifier = "now.typeless.desktop"
 
@@ -126,7 +127,7 @@ enum TypelessVoiceBridge {
             if let selected = selectedMicrophoneDevice(for: deviceName, deviceUID: deviceUID, in: root) {
                 setValue(selected, in: &root, at: selectedMicrophonePath)
                 updated = true
-            } else if dictionaryValue(in: root, at: selectedMicrophonePath) != nil {
+            } else if hasKey(in: root, at: selectedMicrophonePath) || arrayValue(in: root, at: microphoneDevicesPath) != nil {
                 let defaultDevice = defaultMicrophoneDevice(for: deviceName)
                 setValue(defaultDevice, in: &root, at: selectedMicrophonePath)
                 updated = ensureDefaultMicrophoneDevice(defaultDevice, in: &root) || updated
@@ -136,6 +137,10 @@ enum TypelessVoiceBridge {
             for path in audioDeviceStringPaths(in: root) where stringValue(in: root, at: path) != nil {
                 let replacement = isIdentifierPath(path) ? (deviceUID ?? deviceName) : deviceName
                 setValue(replacement, in: &root, at: path)
+                updated = true
+            }
+            if hasKey(in: root, at: preferredBuiltInMicIdPath) {
+                setValue(NSNull(), in: &root, at: preferredBuiltInMicIdPath)
                 updated = true
             }
 
@@ -282,9 +287,31 @@ enum TypelessVoiceBridge {
         return values
     }
 
+    private static func visibleAudioDeviceName(in root: [String: Any]) -> String? {
+        if let selected = dictionaryValue(in: root, at: selectedMicrophonePath),
+           let label = selected["label"] as? String,
+           !label.isEmpty {
+            return label
+        }
+        if let devices = arrayValue(in: root, at: microphoneDevicesPath),
+           let recommended = devices.first(where: { ($0["description"] as? String) == "Recommended" }),
+           let label = recommended["label"] as? String,
+           !label.isEmpty {
+            return label
+        }
+        if let devices = arrayValue(in: root, at: microphoneDevicesPath),
+           let first = devices.first,
+           let label = first["label"] as? String,
+           !label.isEmpty {
+            return label
+        }
+        return nil
+    }
+
     private static func audioDeviceStringPaths(in root: [String: Any]) -> [[String]] {
         uniqueKeyPaths(audioDeviceKeyPaths + recursiveAudioDevicePaths(in: root)).filter { path in
             !path.starts(with: selectedMicrophonePath) && !path.starts(with: microphoneDevicesPath)
+                && path != preferredBuiltInMicIdPath
         }
     }
 
@@ -351,6 +378,15 @@ enum TypelessVoiceBridge {
         return current
     }
 
+    private static func hasKey(in root: [String: Any], at path: [String]) -> Bool {
+        guard let first = path.first else { return false }
+        if path.count == 1 {
+            return root.keys.contains(first)
+        }
+        guard let child = root[first] as? [String: Any] else { return false }
+        return hasKey(in: child, at: Array(path.dropFirst()))
+    }
+
     private static func setValue(_ value: Any, in root: inout [String: Any], at path: [String]) {
         guard let first = path.first else { return }
         if path.count == 1 {
@@ -374,6 +410,10 @@ enum TypelessVoiceBridge {
             }
             let values = audioDeviceValues(in: root)
             if let audioDevice = values.first {
+                return (url, root, audioDevice, values)
+            }
+            if let audioDevice = visibleAudioDeviceName(in: root),
+               arrayValue(in: root, at: microphoneDevicesPath) != nil {
                 return (url, root, audioDevice, values)
             }
         }
