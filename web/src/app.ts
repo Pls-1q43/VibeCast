@@ -508,9 +508,7 @@ export class App {
         if (msg.state === "started" && this.activeVoice?.sessionId === msg.sessionId) {
           this.activeVoice.ready = true;
           card.setStatus("voice_recording");
-          for (const chunk of this.activeVoice.pendingChunks.splice(0)) {
-            this.sendVoiceChunk(this.activeVoice, chunk);
-          }
+          this.activeVoice.pendingChunks.splice(0);
         } else if (msg.state === "stopped") {
           card.setStatus("synced");
         } else if (msg.state === "error") {

@@ -43,6 +43,8 @@ final class SessionManager: ServerDelegate {
     private var sendGate = SendGate()
     /// 每连接消息速率限制，避免旧页面/异常客户端刷爆控制通道。
     private var rateLimiters: [UUID: MessageRateLimiter] = [:]
+    /// 语音分片是实时流，使用独立限流，避免被普通控制消息规则误伤。
+    private var voiceChunkRateLimiters: [UUID: MessageRateLimiter] = [:]
     /// editor 同步模式下，每个会话只替换本轮由 VibeCast 插入的文本段。
     private var editorStates: [EditorSessionKey: EditorInsertionState] = [:]
     /// 语音传递实验：跟踪手机端音频分片、虚拟麦克风输出和启动/停止热键。
@@ -109,7 +111,7 @@ final class SessionManager: ServerDelegate {
                 sendError(conn, code: .unpaired, message: "请先完成配对握手")
                 return
             }
-            guard allowMessage(from: conn) else {
+            guard allowMessage(type: type, from: conn) else {
                 sendError(conn, code: .rateLimited, message: "消息过于频繁")
                 return
             }
@@ -186,6 +188,7 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         paired.removeValue(forKey: conn.id)
         rateLimiters.removeValue(forKey: conn.id)
+        voiceChunkRateLimiters.removeValue(forKey: conn.id)
         let closingVoiceStates = voiceStates.filter { $0.key.connectionId == conn.id }.map(\.value)
         voiceStates = voiceStates.filter { $0.key.connectionId != conn.id }
         if activeControllerId == conn.id {
@@ -230,6 +233,7 @@ final class SessionManager: ServerDelegate {
         let conns = Array(paired.values)
         paired.removeAll()
         rateLimiters.removeAll()
+        voiceChunkRateLimiters.removeAll()
         activeControllerId = nil
         activeBinding = nil
         editorStates.removeAll()
@@ -263,6 +267,7 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         paired[conn.id] = conn
         rateLimiters[conn.id] = MessageRateLimiter()
+        voiceChunkRateLimiters[conn.id] = MessageRateLimiter(maxEvents: 120)
         // 单一活动输入会话（PRD 12.2）：最新手机输入页接管控制权。
         // 单用户场景下，用户最后打开/重连的页面即其想操作的会话；
         // 配置页不接管输入控制权，否则会让手机端同步被误判为非活动会话。
@@ -445,17 +450,6 @@ final class SessionManager: ServerDelegate {
                                          receivedBytes: nil))
             return
         }
-        if settings.provider == .doubaoInput {
-            let reloaded = DoubaoImeBridge.reloadForInputDeviceChange()
-            delegate?.sessionDidLog("voice_provider_reload provider=\(settings.provider.rawValue) phase=start ok=\(reloaded)")
-            guard reloaded else {
-                if let previousInputToRestore { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInputToRestore) }
-                send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
-                                             state: "error", message: "无法重载豆包输入法以读取虚拟麦克风",
-                                             receivedBytes: nil))
-                return
-            }
-        }
         let relay = VoiceAudioRelay()
         guard relay.start(deviceUID: device.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
             if let previousInputToRestore { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInputToRestore) }
@@ -487,6 +481,8 @@ final class SessionManager: ServerDelegate {
             case .focused(let binding):
                 if voiceSettings.provider == .typeless {
                     Thread.sleep(forTimeInterval: 0.15)
+                } else if voiceSettings.provider == .doubaoInput {
+                    Thread.sleep(forTimeInterval: 0.45)
                 }
                 self.lock.lock()
                 self.activeBinding = binding
@@ -588,10 +584,6 @@ final class SessionManager: ServerDelegate {
             let current = VoiceAudioDeviceManager.defaultInputDevice()
             let inputRestored = restored && (current.map { $0 == previous } ?? false)
             delegate?.sessionDidLog("voice_input_restore to=\(VoiceAudioDeviceManager.deviceLabel(previous)) current=\(VoiceAudioDeviceManager.deviceLabel(current)) ok=\(inputRestored)")
-            if state.provider == .doubaoInput {
-                let reloaded = DoubaoImeBridge.reloadForInputDeviceChange(launchIfNotRunning: false)
-                delegate?.sessionDidLog("voice_provider_reload provider=\(state.provider.rawValue) phase=stop ok=\(reloaded)")
-            }
         }
     }
 
@@ -1162,8 +1154,14 @@ final class SessionManager: ServerDelegate {
         return activeControllerId == conn.id
     }
 
-    private func allowMessage(from conn: Connection) -> Bool {
+    private func allowMessage(type: String, from conn: Connection) -> Bool {
         lock.lock(); defer { lock.unlock() }
+        if type == "voice_chunk" {
+            var limiter = voiceChunkRateLimiters[conn.id] ?? MessageRateLimiter(maxEvents: 120)
+            let ok = limiter.allow(nowMs: Int64(Date().timeIntervalSince1970 * 1000))
+            voiceChunkRateLimiters[conn.id] = limiter
+            return ok
+        }
         var limiter = rateLimiters[conn.id] ?? MessageRateLimiter()
         let ok = limiter.allow(nowMs: Int64(Date().timeIntervalSince1970 * 1000))
         rateLimiters[conn.id] = limiter
