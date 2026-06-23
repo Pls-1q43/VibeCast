@@ -68,6 +68,7 @@ final class SessionManager: ServerDelegate {
         var hotkeyPressed = false
         var triggerMode: VoiceTriggerMode
         var shortcut: KeyShortcut
+        var provider: VoiceInputProvider
         var previousInputDevice: AudioDeviceID?
         var relay: VoiceAudioRelay?
         var deviceName: String?
@@ -444,6 +445,17 @@ final class SessionManager: ServerDelegate {
                                          receivedBytes: nil))
             return
         }
+        if settings.provider == .doubaoInput {
+            let reloaded = DoubaoImeBridge.reloadForInputDeviceChange()
+            delegate?.sessionDidLog("voice_provider_reload provider=\(settings.provider.rawValue) phase=start ok=\(reloaded)")
+            guard reloaded else {
+                if let previousInputToRestore { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInputToRestore) }
+                send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                             state: "error", message: "无法重载豆包输入法以读取虚拟麦克风",
+                                             receivedBytes: nil))
+                return
+            }
+        }
         let relay = VoiceAudioRelay()
         guard relay.start(deviceUID: device.uid, sampleRate: Double(msg.sampleRate), channels: UInt32(msg.channels)) else {
             if let previousInputToRestore { _ = VoiceAudioDeviceManager.setDefaultInputDevice(previousInputToRestore) }
@@ -457,6 +469,7 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         voiceStates[key] = VoiceRelayState(triggerMode: settings.triggerMode,
                                            shortcut: settings.shortcut,
+                                           provider: settings.provider,
                                            previousInputDevice: previousInputToRestore,
                                            relay: relay,
                                            deviceName: device.name)
@@ -575,6 +588,10 @@ final class SessionManager: ServerDelegate {
             let current = VoiceAudioDeviceManager.defaultInputDevice()
             let inputRestored = restored && (current.map { $0 == previous } ?? false)
             delegate?.sessionDidLog("voice_input_restore to=\(VoiceAudioDeviceManager.deviceLabel(previous)) current=\(VoiceAudioDeviceManager.deviceLabel(current)) ok=\(inputRestored)")
+            if state.provider == .doubaoInput {
+                let reloaded = DoubaoImeBridge.reloadForInputDeviceChange(launchIfNotRunning: false)
+                delegate?.sessionDidLog("voice_provider_reload provider=\(state.provider.rawValue) phase=stop ok=\(reloaded)")
+            }
         }
     }
 

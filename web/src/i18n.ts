@@ -205,7 +205,7 @@ const zh: Dict = {
   "cfg.voiceProviderCustom": "自定义",
   "cfg.voiceProviderTypelessHint": "Typeless 通常使用短按 Fn 开始、再次短按 Fn 结束；如果你改过快捷键，请在下方同步修改。",
   "cfg.voiceProviderWechatHint": "微信输入法需先在微信设置 → 快捷键里把语音输入快捷键控制范围设为“所有窗口”，默认按住 Fn 开始、松开结束。",
-  "cfg.voiceProviderDoubaoHint": "豆包输入法通常使用按住 Fn 开始、松开结束；如果你改过快捷键，请在下方同步修改。",
+  "cfg.voiceProviderDoubaoHint": "豆包输入法通常使用按住 Fn 开始、松开结束；VibeCast 会在语音开始和结束时重载豆包输入法，让它跟随当前系统输入设备。",
   "cfg.voiceTriggerMode": "触发方式",
   "cfg.voiceTriggerHint": "短按开关适合闪电说和 Typeless；按住触发适合微信/豆包这类 Fn 长按输入法。",
   "cfg.voiceTriggerToggle": "短按开始/再次短按结束",
