@@ -410,6 +410,10 @@ export interface VoiceEnvironmentMessage {
   typelessAudioDevice?: string | null;
   typelessMatchesVirtualMic?: boolean | null;
   typelessMessage?: string | null;
+  doubaoInstalled?: boolean | null;
+  doubaoAudioDevice?: string | null;
+  doubaoMatchesVirtualMic?: boolean | null;
+  doubaoMessage?: string | null;
 }
 
 export interface VoiceSettingsMessage {

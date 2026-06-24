@@ -20,6 +20,9 @@ enum VoiceAudioDeviceManager {
         let defaultMatches = device != nil && defaultInput == device?.id
         let shandianshuo = ShanDianShuoVoiceBridge.status(virtualDeviceName: device?.name)
         let typeless = TypelessVoiceBridge.status(virtualDeviceName: device?.name, virtualDeviceUID: device?.uid)
+        let doubao = settings.provider == .doubaoInput
+            ? DoubaoVoiceBridge.microphoneStatus(targetDeviceUID: device?.uid ?? "BlackHole2ch_UID", timeout: 0.8)
+            : nil
         return VoiceEnvironmentMessage(enabled: settings.enabled,
                                        provider: settings.provider,
                                        triggerMode: settings.triggerMode,
@@ -38,7 +41,11 @@ enum VoiceAudioDeviceManager {
                                        typelessInstalled: typeless.installed,
                                        typelessAudioDevice: typeless.audioDevice,
                                        typelessMatchesVirtualMic: typeless.matchesVirtualMic,
-                                       typelessMessage: typeless.message)
+                                       typelessMessage: typeless.message,
+                                       doubaoInstalled: doubao?.installed,
+                                       doubaoAudioDevice: doubao?.selectedName ?? doubao?.selectedId,
+                                       doubaoMatchesVirtualMic: doubao?.matchesTarget,
+                                       doubaoMessage: doubao?.message)
     }
 
     static func installVirtualMic(settings: VoiceRelaySettings = .disabled) -> VoiceEnvironmentMessage {
@@ -303,7 +310,11 @@ enum VoiceAudioDeviceManager {
                                        typelessInstalled: base.typelessInstalled,
                                        typelessAudioDevice: base.typelessAudioDevice,
                                        typelessMatchesVirtualMic: base.typelessMatchesVirtualMic,
-                                       typelessMessage: base.typelessMessage)
+                                       typelessMessage: base.typelessMessage,
+                                       doubaoInstalled: base.doubaoInstalled,
+                                       doubaoAudioDevice: base.doubaoAudioDevice,
+                                       doubaoMatchesVirtualMic: base.doubaoMatchesVirtualMic,
+                                       doubaoMessage: base.doubaoMessage)
     }
 }
 

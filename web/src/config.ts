@@ -574,6 +574,28 @@ function renderVoiceEnvironment(): HTMLElement {
     section.append(status, detail);
     if (providerSetupHint) section.append(providerSetupHint);
     section.append(typelessStatus, typelessDetail, controls, actions);
+  } else if (voiceSettings.provider === "doubao_input") {
+    const doubaoOk = voiceEnvironment?.doubaoMatchesVirtualMic === true;
+    const doubaoInstalled = voiceEnvironment?.doubaoInstalled === true;
+    const doubaoStatus = el("div", doubaoOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+    doubaoStatus.textContent = doubaoOk
+      ? i18n.t("cfg.doubaoBound")
+      : doubaoInstalled
+        ? i18n.t("cfg.doubaoNeedsBind")
+        : i18n.t("cfg.doubaoMissing");
+    const doubaoDetail = document.createElement("p");
+    doubaoDetail.className = "cfg-hint";
+    doubaoDetail.textContent = voiceEnvironment
+      ? [
+          voiceEnvironment.doubaoAudioDevice
+            ? i18n.t("cfg.doubaoAudioDevice", { device: voiceEnvironment.doubaoAudioDevice })
+            : "",
+          voiceEnvironment.doubaoMessage ?? "",
+        ].filter(Boolean).join(" · ")
+      : i18n.t("cfg.loading");
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(doubaoStatus, doubaoDetail, controls, actions);
   } else {
     section.append(status, detail);
     if (providerSetupHint) section.append(providerSetupHint);

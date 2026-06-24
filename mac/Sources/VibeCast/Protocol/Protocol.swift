@@ -326,6 +326,44 @@ struct VoiceEnvironmentMessage: Codable, Sendable {
     let typelessAudioDevice: String?
     let typelessMatchesVirtualMic: Bool?
     let typelessMessage: String?
+    let doubaoInstalled: Bool?
+    let doubaoAudioDevice: String?
+    let doubaoMatchesVirtualMic: Bool?
+    let doubaoMessage: String?
+
+    init(enabled: Bool, provider: VoiceInputProvider, triggerMode: VoiceTriggerMode, shortcut: KeyShortcut,
+         installed: Bool, deviceName: String?, dedicatedInstalled: Bool, usingCompatibilityDevice: Bool,
+         defaultInputMatches: Bool, canAutoSwitch: Bool, message: String?,
+         shandianshuoInstalled: Bool?, shandianshuoAudioDevice: String?,
+         shandianshuoMatchesVirtualMic: Bool?, shandianshuoMessage: String?,
+         typelessInstalled: Bool?, typelessAudioDevice: String?,
+         typelessMatchesVirtualMic: Bool?, typelessMessage: String?,
+         doubaoInstalled: Bool? = nil, doubaoAudioDevice: String? = nil,
+         doubaoMatchesVirtualMic: Bool? = nil, doubaoMessage: String? = nil) {
+        self.enabled = enabled
+        self.provider = provider
+        self.triggerMode = triggerMode
+        self.shortcut = shortcut
+        self.installed = installed
+        self.deviceName = deviceName
+        self.dedicatedInstalled = dedicatedInstalled
+        self.usingCompatibilityDevice = usingCompatibilityDevice
+        self.defaultInputMatches = defaultInputMatches
+        self.canAutoSwitch = canAutoSwitch
+        self.message = message
+        self.shandianshuoInstalled = shandianshuoInstalled
+        self.shandianshuoAudioDevice = shandianshuoAudioDevice
+        self.shandianshuoMatchesVirtualMic = shandianshuoMatchesVirtualMic
+        self.shandianshuoMessage = shandianshuoMessage
+        self.typelessInstalled = typelessInstalled
+        self.typelessAudioDevice = typelessAudioDevice
+        self.typelessMatchesVirtualMic = typelessMatchesVirtualMic
+        self.typelessMessage = typelessMessage
+        self.doubaoInstalled = doubaoInstalled
+        self.doubaoAudioDevice = doubaoAudioDevice
+        self.doubaoMatchesVirtualMic = doubaoMatchesVirtualMic
+        self.doubaoMessage = doubaoMessage
+    }
 }
 
 struct VoiceSettingsMessage: Codable, Sendable {
