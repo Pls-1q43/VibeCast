@@ -119,6 +119,33 @@ struct ClearMessage: Codable, Sendable {
     let revision: Int
 }
 
+struct VoiceStartMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let sampleRate: Int
+    let channels: Int
+    let codec: String
+    let clientTimestamp: Int64?
+}
+
+struct VoiceChunkMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let sequence: Int
+    let audioBase64: String
+    let clientTimestamp: Int64?
+}
+
+struct VoiceStopMessage: Codable, Sendable {
+    let type: String
+    let sessionId: String
+    let targetId: TargetId
+    let reason: String?
+    let clientTimestamp: Int64?
+}
+
 struct PingMessage: Codable, Sendable {
     let type: String
     let t: Int64
@@ -138,6 +165,27 @@ struct CheckPortMessage: Codable, Sendable {
     let bindMode: NetworkBindMode
     let bindAddress: String?
     let port: UInt16
+}
+
+struct GetVoiceEnvironmentMessage: Codable, Sendable {
+    let type: String
+}
+
+struct GetVoiceSettingsMessage: Codable, Sendable {
+    let type: String
+}
+
+struct SetVoiceSettingsMessage: Codable, Sendable {
+    let type: String
+    let settings: VoiceRelaySettings
+}
+
+struct InstallVirtualMicMessage: Codable, Sendable {
+    let type: String
+}
+
+struct BindShanDianShuoMicMessage: Codable, Sendable {
+    let type: String
 }
 
 // 配置相关（手机配置页 → Mac）
@@ -215,6 +263,7 @@ struct HelloAckMessage: Codable, Sendable {
     let protocolVersion: Int
     let targets: [TargetInfo]
     let accessibilityGranted: Bool
+    let voiceRelayEnabled: Bool
 }
 
 struct TargetStatusMessage: Codable, Sendable {
@@ -223,7 +272,7 @@ struct TargetStatusMessage: Codable, Sendable {
     let targetId: TargetId
     let status: TargetStatus
     let errorCode: ErrorCode?
-    let message: String?
+    var message: String?
 }
 
 struct TextAckMessage: Codable, Sendable {
@@ -245,6 +294,81 @@ struct SendResultMessage: Codable, Sendable {
     let success: Bool
     let errorCode: ErrorCode?
     let message: String?
+}
+
+struct VoiceStateMessage: Codable, Sendable {
+    var type = "voice_state"
+    let sessionId: String
+    let targetId: TargetId
+    let state: String
+    let message: String?
+    let receivedBytes: Int?
+}
+
+struct VoiceEnvironmentMessage: Codable, Sendable {
+    var type = "voice_environment"
+    let enabled: Bool
+    let provider: VoiceInputProvider
+    let triggerMode: VoiceTriggerMode
+    let shortcut: KeyShortcut
+    let installed: Bool
+    let deviceName: String?
+    let dedicatedInstalled: Bool
+    let usingCompatibilityDevice: Bool
+    let defaultInputMatches: Bool
+    let canAutoSwitch: Bool
+    let message: String?
+    let shandianshuoInstalled: Bool?
+    let shandianshuoAudioDevice: String?
+    let shandianshuoMatchesVirtualMic: Bool?
+    let shandianshuoMessage: String?
+    let typelessInstalled: Bool?
+    let typelessAudioDevice: String?
+    let typelessMatchesVirtualMic: Bool?
+    let typelessMessage: String?
+    let doubaoInstalled: Bool?
+    let doubaoAudioDevice: String?
+    let doubaoMatchesVirtualMic: Bool?
+    let doubaoMessage: String?
+
+    init(enabled: Bool, provider: VoiceInputProvider, triggerMode: VoiceTriggerMode, shortcut: KeyShortcut,
+         installed: Bool, deviceName: String?, dedicatedInstalled: Bool, usingCompatibilityDevice: Bool,
+         defaultInputMatches: Bool, canAutoSwitch: Bool, message: String?,
+         shandianshuoInstalled: Bool?, shandianshuoAudioDevice: String?,
+         shandianshuoMatchesVirtualMic: Bool?, shandianshuoMessage: String?,
+         typelessInstalled: Bool?, typelessAudioDevice: String?,
+         typelessMatchesVirtualMic: Bool?, typelessMessage: String?,
+         doubaoInstalled: Bool? = nil, doubaoAudioDevice: String? = nil,
+         doubaoMatchesVirtualMic: Bool? = nil, doubaoMessage: String? = nil) {
+        self.enabled = enabled
+        self.provider = provider
+        self.triggerMode = triggerMode
+        self.shortcut = shortcut
+        self.installed = installed
+        self.deviceName = deviceName
+        self.dedicatedInstalled = dedicatedInstalled
+        self.usingCompatibilityDevice = usingCompatibilityDevice
+        self.defaultInputMatches = defaultInputMatches
+        self.canAutoSwitch = canAutoSwitch
+        self.message = message
+        self.shandianshuoInstalled = shandianshuoInstalled
+        self.shandianshuoAudioDevice = shandianshuoAudioDevice
+        self.shandianshuoMatchesVirtualMic = shandianshuoMatchesVirtualMic
+        self.shandianshuoMessage = shandianshuoMessage
+        self.typelessInstalled = typelessInstalled
+        self.typelessAudioDevice = typelessAudioDevice
+        self.typelessMatchesVirtualMic = typelessMatchesVirtualMic
+        self.typelessMessage = typelessMessage
+        self.doubaoInstalled = doubaoInstalled
+        self.doubaoAudioDevice = doubaoAudioDevice
+        self.doubaoMatchesVirtualMic = doubaoMatchesVirtualMic
+        self.doubaoMessage = doubaoMessage
+    }
+}
+
+struct VoiceSettingsMessage: Codable, Sendable {
+    var type = "voice_settings"
+    let settings: VoiceRelaySettings
 }
 
 struct ErrorMessage: Codable, Sendable {

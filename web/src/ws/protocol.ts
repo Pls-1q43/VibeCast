@@ -73,6 +73,57 @@ export interface ClearMessage {
   revision: number;
 }
 
+export interface VoiceStartMessage {
+  type: "voice_start";
+  sessionId: string;
+  targetId: TargetId;
+  sampleRate: number;
+  channels: number;
+  codec: "pcm_s16le";
+  clientTimestamp?: number;
+}
+
+export interface VoiceChunkMessage {
+  type: "voice_chunk";
+  sessionId: string;
+  targetId: TargetId;
+  sequence: number;
+  audioBase64: string;
+  clientTimestamp?: number;
+}
+
+export interface VoiceStopMessage {
+  type: "voice_stop";
+  sessionId: string;
+  targetId: TargetId;
+  reason?: "release" | "cancel" | "error" | "disconnect";
+  clientTimestamp?: number;
+}
+
+export type VoiceInputProvider =
+  | "shandianshuo"
+  | "typeless"
+  | "wechat_input"
+  | "doubao_input"
+  | "macos_dictation"
+  | "custom";
+
+export type VoiceTriggerMode = "toggle" | "hold";
+
+export interface KeyShortcut {
+  modifiers: string[];
+  key: string;
+}
+
+export interface VoiceRelaySettings {
+  enabled: boolean;
+  provider: VoiceInputProvider;
+  triggerMode: VoiceTriggerMode;
+  shortcut: KeyShortcut;
+  managedOriginalAudioDevice?: string | null;
+  managedVirtualAudioDevice?: string | null;
+}
+
 export interface PingMessage {
   type: "ping";
   t: number;
@@ -84,6 +135,9 @@ export type ClientMessage =
   | TextSnapshotMessage
   | SendMessage
   | ClearMessage
+  | VoiceStartMessage
+  | VoiceChunkMessage
+  | VoiceStopMessage
   | PingMessage
   | GetConfigMessage
   | SetConfigMessage
@@ -93,6 +147,12 @@ export type ClientMessage =
   | GetNetworkSettingsMessage
   | SetNetworkSettingsMessage
   | CheckPortMessage
+  | GetVoiceEnvironmentMessage
+  | GetVoiceSettingsMessage
+  | SetVoiceSettingsMessage
+  | InstallVirtualMicMessage
+  | BindShanDianShuoMicMessage
+  | BindTypelessMicMessage
   | OpenAccessibilitySettingsMessage
   | CreateTargetMessage
   | DeleteTargetMessage
@@ -116,6 +176,7 @@ export interface HelloAckMessage {
   protocolVersion: number;
   targets: TargetInfo[];
   accessibilityGranted: boolean;
+  voiceRelayEnabled: boolean;
 }
 
 export interface TargetStatusMessage {
@@ -146,6 +207,15 @@ export interface SendResultMessage {
   success: boolean;
   errorCode?: ErrorCode;
   message?: string;
+}
+
+export interface VoiceStateMessage {
+  type: "voice_state";
+  sessionId: string;
+  targetId: TargetId;
+  state: "starting" | "started" | "stopped" | "error";
+  message?: string | null;
+  receivedBytes?: number | null;
 }
 
 export interface ErrorMessage {
@@ -180,6 +250,7 @@ export interface TargetProfile {
   allowSelectAllReplace: boolean;
   writeMode?: "auto" | "axvalue" | "clipboard_replace" | "clipboard_insert" | "clipboard_paste";
   syncMode?: "mirror" | "editor";
+  voiceShortcut?: { modifiers: string[]; key: string };
 }
 
 export interface ConfigTarget {
@@ -225,6 +296,25 @@ export interface CheckPortMessage {
   bindMode: NetworkBindMode;
   bindAddress?: string | null;
   port: number;
+}
+export interface GetVoiceEnvironmentMessage {
+  type: "get_voice_environment";
+}
+export interface GetVoiceSettingsMessage {
+  type: "get_voice_settings";
+}
+export interface SetVoiceSettingsMessage {
+  type: "set_voice_settings";
+  settings: VoiceRelaySettings;
+}
+export interface InstallVirtualMicMessage {
+  type: "install_virtual_mic";
+}
+export interface BindShanDianShuoMicMessage {
+  type: "bind_shandianshuo_mic";
+}
+export interface BindTypelessMicMessage {
+  type: "bind_typeless_mic";
 }
 export interface OpenAccessibilitySettingsMessage {
   type: "open_accessibility_settings";
@@ -299,12 +389,44 @@ export interface PortCheckMessage {
   type: "port_check";
   result: PortCheckResult;
 }
+export interface VoiceEnvironmentMessage {
+  type: "voice_environment";
+  enabled: boolean;
+  provider: VoiceInputProvider;
+  triggerMode: VoiceTriggerMode;
+  shortcut: KeyShortcut;
+  installed: boolean;
+  deviceName?: string | null;
+  dedicatedInstalled: boolean;
+  usingCompatibilityDevice: boolean;
+  defaultInputMatches: boolean;
+  canAutoSwitch: boolean;
+  message?: string | null;
+  shandianshuoInstalled?: boolean | null;
+  shandianshuoAudioDevice?: string | null;
+  shandianshuoMatchesVirtualMic?: boolean | null;
+  shandianshuoMessage?: string | null;
+  typelessInstalled?: boolean | null;
+  typelessAudioDevice?: string | null;
+  typelessMatchesVirtualMic?: boolean | null;
+  typelessMessage?: string | null;
+  doubaoInstalled?: boolean | null;
+  doubaoAudioDevice?: string | null;
+  doubaoMatchesVirtualMic?: boolean | null;
+  doubaoMessage?: string | null;
+}
+
+export interface VoiceSettingsMessage {
+  type: "voice_settings";
+  settings: VoiceRelaySettings;
+}
 
 export type ServerMessage =
   | HelloAckMessage
   | TargetStatusMessage
   | TextAckMessage
   | SendResultMessage
+  | VoiceStateMessage
   | ErrorMessage
   | PongMessage
   | ConfigMessage
@@ -313,7 +435,9 @@ export type ServerMessage =
   | ServerStatusMessage
   | NetworkSettingsMessage
   | NetworkInterfacesMessage
-  | PortCheckMessage;
+  | PortCheckMessage
+  | VoiceEnvironmentMessage
+  | VoiceSettingsMessage;
 
 export function isServerMessage(v: unknown): v is ServerMessage {
   return typeof v === "object" && v !== null && typeof (v as { type?: unknown }).type === "string";

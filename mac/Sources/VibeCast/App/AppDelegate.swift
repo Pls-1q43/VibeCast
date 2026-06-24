@@ -41,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         registerSleepWakeObservers()
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        session?.restoreManagedVoiceInput()
+    }
+
     // MARK: - 睡眠/唤醒（PRD 16.5）
 
     private func registerSleepWakeObservers() {
@@ -61,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     // MARK: - Server 生命周期
 
-    private func startConfigServer() {
+    private func startConfigServer(retryOnFailure: Bool = false, attempt: Int = 0) {
         guard configServer == nil else { return }
         guard let staticServer = StaticFileServer() else {
             log(MacI18n.t("missingResources"))
@@ -70,6 +74,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         for port in UInt16(8786)...UInt16(8795) {
             let srv = Server(port: port, bindHost: "127.0.0.1", staticServer: staticServer, routeMode: .config)
             srv.delegate = session
+            srv.failureHandler = { [weak self, weak srv] error in
+                DispatchQueue.main.async {
+                    guard let self, let srv, self.configServer === srv else { return }
+                    self.log(MacI18n.f("serviceStartFailed", String(describing: error)))
+                    self.configServer = nil
+                    self.rebuildMenu()
+                    if retryOnFailure && attempt < 5 {
+                        self.scheduleConfigServerRestart(attempt: attempt + 1)
+                    }
+                }
+            }
             do {
                 try srv.start()
                 configServer = srv
@@ -80,9 +95,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             }
         }
         log(MacI18n.t("configServiceStartFailed"))
+        if retryOnFailure && attempt < 5 {
+            scheduleConfigServerRestart(attempt: attempt + 1)
+        }
     }
 
     private func startPhoneServer(retryOnFailure: Bool = false, attempt: Int = 0) {
+        guard phoneServer == nil else { return }
         guard let staticServer = StaticFileServer() else {
             log(MacI18n.t("missingResources"))
             return
@@ -91,6 +110,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         let bindHost = settings.bindMode == .all ? nil : settings.bindAddress
         let srv = Server(port: settings.port, bindHost: bindHost, staticServer: staticServer, routeMode: .phone)
         srv.delegate = session
+        srv.failureHandler = { [weak self, weak srv] error in
+            DispatchQueue.main.async {
+                guard let self, let srv, self.phoneServer === srv else { return }
+                self.log(MacI18n.f("serviceStartFailed", String(describing: error)))
+                self.phoneServer = nil
+                self.rebuildMenu()
+                if retryOnFailure && attempt < 5 {
+                    self.schedulePhoneServerRestart(attempt: attempt + 1)
+                }
+            }
+        }
         do {
             try srv.start()
             phoneServer = srv
@@ -98,10 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         } catch {
             log(MacI18n.f("serviceStartFailed", String(describing: error)))
             if retryOnFailure && attempt < 5 {
-                let delay = 0.25 + Double(attempt) * 0.25
-                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                    self?.startPhoneServer(retryOnFailure: true, attempt: attempt + 1)
-                }
+                schedulePhoneServerRestart(attempt: attempt + 1)
             }
         }
         rebuildMenu()
@@ -112,9 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         phoneServer?.stop()
         phoneServer = nil
         pairedCount = 0
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            self?.startPhoneServer(retryOnFailure: true)
-        }
+        schedulePhoneServerRestart(attempt: 0)
     }
 
     private func restartAllServers() {
@@ -124,8 +149,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         phoneServer = nil
         configServer = nil
         pairedCount = 0
-        startConfigServer()
-        startPhoneServer()
+        rebuildMenu()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            self.startConfigServer(retryOnFailure: true)
+            self.startPhoneServer(retryOnFailure: true)
+        }
+    }
+
+    private func scheduleConfigServerRestart(attempt: Int) {
+        let delay = 0.25 + Double(attempt) * 0.25
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.startConfigServer(retryOnFailure: true, attempt: attempt)
+        }
+    }
+
+    private func schedulePhoneServerRestart(attempt: Int) {
+        let delay = 0.25 + Double(attempt) * 0.25
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.startPhoneServer(retryOnFailure: true, attempt: attempt)
+        }
     }
 
     // MARK: - 权限
@@ -349,6 +392,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func quit() {
+        session?.restoreManagedVoiceInput()
         phoneServer?.stop()
         configServer?.stop()
         NSApp.terminate(nil)

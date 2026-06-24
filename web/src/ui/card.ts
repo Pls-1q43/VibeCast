@@ -11,12 +11,15 @@ export interface CardCallbacks {
   onSend: (targetId: TargetId) => void;
   onClear: (targetId: TargetId) => void;
   onRefocus: (targetId: TargetId) => void;
+  onVoiceHoldStart: (targetId: TargetId) => void;
+  onVoiceHoldEnd: (targetId: TargetId, reason: "release" | "cancel") => void;
 }
 
 export class Card {
   readonly targetId: TargetId;
   readonly textarea: HTMLTextAreaElement;
   private root: HTMLElement;
+  private inputWrap: HTMLElement;
   private statusEl: HTMLElement;
   private sendBtn: HTMLButtonElement;
   private clearBtn: HTMLButtonElement;
@@ -24,6 +27,11 @@ export class Card {
   private status: SyncStatus = "disconnected";
   private allowEmpty = false;
   private syncMode: "mirror" | "editor" = "mirror";
+  private voiceTimer: number | null = null;
+  private voicePointerId: number | null = null;
+  private voiceActive = false;
+  private voiceRelayEnabled = false;
+  private readonly placeholderText: string;
 
   constructor(targetId: TargetId, displayName: string, iconDataUrl: string | null | undefined, private i18n: I18n, cb: CardCallbacks) {
     this.targetId = targetId;
@@ -47,11 +55,13 @@ export class Card {
     header.append(icon, titleWrap);
 
     // 文本框（标准 textarea，PRD 5.2）
+    this.inputWrap = el("div", "card__inputwrap");
     this.textarea = document.createElement("textarea");
     this.textarea.className = "card__textarea";
     this.textarea.rows = 4;
     this.textarea.setAttribute("aria-labelledby", labelId);
-    this.textarea.placeholder = i18n.t("card.placeholder");
+    this.placeholderText = i18n.t("card.placeholder");
+    this.textarea.placeholder = this.placeholderText;
     this.textarea.autocapitalize = "off";
     this.textarea.spellcheck = false;
     this.textarea.addEventListener("focus", () => cb.onFocusTextarea(targetId));
@@ -59,6 +69,17 @@ export class Card {
       this.syncTextareaHeight();
       cb.onInput(targetId);
     });
+    this.textarea.addEventListener("contextmenu", (event) => {
+      if (this.voiceActive || this.voiceTimer !== null) event.preventDefault();
+    });
+    const voicePressLayer = el("div", "card__voicepress");
+    voicePressLayer.textContent = i18n.t("card.placeholder");
+    voicePressLayer.addEventListener("pointerdown", (event) => this.onVoicePointerDown(event, cb));
+    voicePressLayer.addEventListener("pointerup", () => this.finishVoiceHold(cb, "release"));
+    voicePressLayer.addEventListener("pointercancel", () => this.finishVoiceHold(cb, "cancel"));
+    voicePressLayer.addEventListener("pointerleave", () => this.finishVoiceHold(cb, "cancel"));
+    voicePressLayer.addEventListener("contextmenu", (event) => event.preventDefault());
+    this.inputWrap.append(this.textarea, voicePressLayer);
 
     // 操作区
     const actions = el("div", "card__actions");
@@ -67,7 +88,7 @@ export class Card {
     this.refocusBtn = button(i18n.t("card.refocus"), "btn btn--ghost", () => cb.onRefocus(targetId));
     actions.append(this.sendBtn, this.clearBtn, this.refocusBtn);
 
-    this.root.append(header, this.textarea, actions);
+    this.root.append(header, this.inputWrap, actions);
     this.setStatus("disconnected");
     this.syncTextareaHeight();
   }
@@ -104,6 +125,17 @@ export class Card {
   setSyncMode(syncMode: "mirror" | "editor"): void {
     this.syncMode = syncMode;
     this.updateButtons();
+  }
+
+  setVoiceRelayEnabled(enabled: boolean): void {
+    this.voiceRelayEnabled = enabled;
+    this.inputWrap.classList.toggle("card__inputwrap--voice-enabled", enabled);
+    if (!enabled) {
+      this.clearVoiceTimer();
+      this.voiceActive = false;
+      this.root.classList.remove("card--voice-active");
+    }
+    this.syncTextareaHeight();
   }
 
   setStatus(status: SyncStatus, detail?: string | null): void {
@@ -151,7 +183,57 @@ export class Card {
 
   private syncTextareaHeight(): void {
     this.textarea.style.height = "auto";
-    this.textarea.style.height = `${this.textarea.scrollHeight}px`;
+    const compact = this.voiceRelayEnabled && this.text.trim().length === 0 && document.activeElement !== this.textarea;
+    this.inputWrap.classList.toggle("card__inputwrap--compact", compact);
+    this.textarea.placeholder = compact ? "" : this.placeholderText;
+    const minHeight = compact ? 46 : this.textarea.scrollHeight;
+    this.textarea.style.height = `${minHeight}px`;
+  }
+
+  private onVoicePointerDown(event: PointerEvent, cb: CardCallbacks): void {
+    if (!this.voiceRelayEnabled) return;
+    if (event.button !== 0 || this.status === "disconnected" || this.status === "reconnecting") return;
+    event.preventDefault();
+    this.clearVoiceTimer();
+    this.voicePointerId = event.pointerId;
+    const target = event.currentTarget as HTMLElement | null;
+    target?.setPointerCapture?.(event.pointerId);
+    this.voiceTimer = window.setTimeout(() => {
+      this.voiceTimer = null;
+      this.voiceActive = true;
+      this.root.classList.add("card--voice-active");
+      this.textarea.blur();
+      cb.onVoiceHoldStart(this.targetId);
+    }, 450);
+  }
+
+  private finishVoiceHold(cb: CardCallbacks, reason: "release" | "cancel"): void {
+    const wasPendingTextTap = this.voiceTimer !== null && !this.voiceActive && reason === "release";
+    this.clearVoiceTimer();
+    if (this.voicePointerId !== null) {
+      try {
+        this.root.querySelector<HTMLElement>(".card__voicepress")?.releasePointerCapture?.(this.voicePointerId);
+      } catch {
+        /* pointer capture may already be gone */
+      }
+      this.voicePointerId = null;
+    }
+    if (wasPendingTextTap) {
+      this.textarea.focus();
+      this.syncTextareaHeight();
+      return;
+    }
+    if (!this.voiceActive) return;
+    this.voiceActive = false;
+    this.root.classList.remove("card--voice-active");
+    cb.onVoiceHoldEnd(this.targetId, reason);
+  }
+
+  private clearVoiceTimer(): void {
+    if (this.voiceTimer !== null) {
+      clearTimeout(this.voiceTimer);
+      this.voiceTimer = null;
+    }
   }
 }
 

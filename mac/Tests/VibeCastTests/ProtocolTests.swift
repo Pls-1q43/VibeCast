@@ -29,10 +29,13 @@ final class ProtocolTests: XCTestCase {
         let targets = TargetId.presetIds.map {
             TargetInfo(id: $0, displayName: $0.rawValue, available: true, iconDataUrl: "data:image/png;base64,ZmFrZQ==")
         }
-        let ack = HelloAckMessage(serverName: "Mac", protocolVersion: kProtocolVersion, targets: targets, accessibilityGranted: true)
+        let ack = HelloAckMessage(serverName: "Mac", protocolVersion: kProtocolVersion,
+                                  targets: targets, accessibilityGranted: true,
+                                  voiceRelayEnabled: false)
         let data = try ProtocolCodec.encode(ack)
         let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         XCTAssertEqual(obj["type"] as? String, "hello_ack")
+        XCTAssertEqual(obj["voiceRelayEnabled"] as? Bool, false)
         XCTAssertEqual((obj["targets"] as? [[String: Any]])?.count, 6)
         let first = (obj["targets"] as! [[String: Any]])[0]
         XCTAssertNotNil(first["clearAfterSend"])
@@ -77,5 +80,67 @@ final class ProtocolTests: XCTestCase {
         let msg = try ProtocolCodec.decoder.decode(SendResultMessage.self, from: json)
         XCTAssertFalse(msg.success)
         XCTAssertEqual(msg.errorCode, .targetNotFocused)
+    }
+
+    func testVoiceStartDecode() throws {
+        let json = """
+        {"type":"voice_start","sessionId":"v1","targetId":"codex","sampleRate":48000,
+         "channels":1,"codec":"pcm_s16le","clientTimestamp":1781760000000}
+        """.data(using: .utf8)!
+        XCTAssertEqual(try ProtocolCodec.messageType(of: json), "voice_start")
+        let msg = try ProtocolCodec.decoder.decode(VoiceStartMessage.self, from: json)
+        XCTAssertEqual(msg.sessionId, "v1")
+        XCTAssertEqual(msg.targetId, .codex)
+        XCTAssertEqual(msg.sampleRate, 48000)
+        XCTAssertEqual(msg.channels, 1)
+        XCTAssertEqual(msg.codec, "pcm_s16le")
+    }
+
+    func testVoiceEnvironmentEncode() throws {
+        let env = VoiceEnvironmentMessage(enabled: true,
+                                          provider: .shandianshuo,
+                                          triggerMode: .toggle,
+                                          shortcut: .rightCommand,
+                                          installed: true, deviceName: "BlackHole 2ch",
+                                          dedicatedInstalled: false,
+                                          usingCompatibilityDevice: true,
+                                          defaultInputMatches: false, canAutoSwitch: true,
+                                          message: nil,
+                                          shandianshuoInstalled: true,
+                                          shandianshuoAudioDevice: "BlackHole 2ch",
+                                          shandianshuoMatchesVirtualMic: true,
+                                          shandianshuoMessage: nil,
+                                          typelessInstalled: true,
+                                          typelessAudioDevice: "Built-in Microphone",
+                                          typelessMatchesVirtualMic: false,
+                                          typelessMessage: "Typeless 当前未绑定到虚拟麦克风")
+        let data = try ProtocolCodec.encode(env)
+        let obj = try JSONSerialization.jsonObject(with: data) as! [String: Any]
+        XCTAssertEqual(obj["type"] as? String, "voice_environment")
+        XCTAssertEqual(obj["enabled"] as? Bool, true)
+        XCTAssertEqual(obj["provider"] as? String, "shandianshuo")
+        XCTAssertEqual(obj["triggerMode"] as? String, "toggle")
+        XCTAssertEqual(obj["installed"] as? Bool, true)
+        XCTAssertEqual(obj["deviceName"] as? String, "BlackHole 2ch")
+        XCTAssertEqual(obj["dedicatedInstalled"] as? Bool, false)
+        XCTAssertEqual(obj["usingCompatibilityDevice"] as? Bool, true)
+        XCTAssertEqual(obj["canAutoSwitch"] as? Bool, true)
+        XCTAssertEqual(obj["shandianshuoAudioDevice"] as? String, "BlackHole 2ch")
+        XCTAssertEqual(obj["shandianshuoMatchesVirtualMic"] as? Bool, true)
+        XCTAssertEqual(obj["typelessAudioDevice"] as? String, "Built-in Microphone")
+        XCTAssertEqual(obj["typelessMatchesVirtualMic"] as? Bool, false)
+    }
+
+    func testVoiceSettingsDecode() throws {
+        let json = """
+        {"type":"set_voice_settings","settings":{"enabled":true,"provider":"typeless",
+         "triggerMode":"hold","shortcut":{"modifiers":[],"key":"fn"}}}
+        """.data(using: .utf8)!
+        XCTAssertEqual(try ProtocolCodec.messageType(of: json), "set_voice_settings")
+        let msg = try ProtocolCodec.decoder.decode(SetVoiceSettingsMessage.self, from: json)
+        XCTAssertTrue(msg.settings.enabled)
+        XCTAssertEqual(msg.settings.provider, .typeless)
+        XCTAssertEqual(msg.settings.triggerMode, .hold)
+        XCTAssertEqual(msg.settings.shortcut, .fn)
     }
 }

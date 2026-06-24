@@ -43,11 +43,94 @@ extension WriteMode {
 }
 
 /// 键盘快捷键描述（修饰键 + 主键）。
-struct KeyShortcut: Codable, Equatable {
+struct KeyShortcut: Codable, Equatable, Sendable {
     var modifiers: [String]  // "command" | "option" | "control" | "shift"
     var key: String          // "enter" | "a" | "k" ...
 
     static let enter = KeyShortcut(modifiers: [], key: "enter")
+    static let rightOption = KeyShortcut(modifiers: [], key: "right_option")
+    static let rightCommand = KeyShortcut(modifiers: [], key: "right_command")
+    static let fn = KeyShortcut(modifiers: [], key: "fn")
+}
+
+enum VoiceInputProvider: String, Codable, Sendable, CaseIterable {
+    case shandianshuo
+    case typeless
+    case wechatInput = "wechat_input"
+    case doubaoInput = "doubao_input"
+    case macosDictation = "macos_dictation"
+    case custom
+
+    var defaultShortcut: KeyShortcut {
+        switch self {
+        case .shandianshuo:
+            return .rightCommand
+        case .typeless:
+            return .fn
+        case .wechatInput, .doubaoInput:
+            return .fn
+        case .macosDictation:
+            return VoiceInputProvider.shandianshuo.defaultShortcut
+        case .custom:
+            return .rightOption
+        }
+    }
+
+    var defaultTriggerMode: VoiceTriggerMode {
+        switch self {
+        case .shandianshuo, .typeless, .macosDictation, .custom:
+            return .toggle
+        case .wechatInput, .doubaoInput:
+            return .hold
+        }
+    }
+}
+
+enum VoiceTriggerMode: String, Codable, Sendable {
+    case toggle
+    case hold
+}
+
+struct VoiceRelaySettings: Codable, Equatable, Sendable {
+    var enabled: Bool
+    var provider: VoiceInputProvider
+    var triggerMode: VoiceTriggerMode
+    var shortcut: KeyShortcut
+    var managedOriginalAudioDevice: String?
+    var managedVirtualAudioDevice: String?
+
+    static let disabled = VoiceRelaySettings(enabled: false,
+                                             provider: .shandianshuo,
+                                             triggerMode: VoiceInputProvider.shandianshuo.defaultTriggerMode,
+                                             shortcut: VoiceInputProvider.shandianshuo.defaultShortcut,
+                                             managedOriginalAudioDevice: nil,
+                                             managedVirtualAudioDevice: nil)
+
+    func applyingProviderDefaults(_ provider: VoiceInputProvider) -> VoiceRelaySettings {
+        var next = self
+        next.provider = provider
+        next.triggerMode = provider.defaultTriggerMode
+        next.shortcut = provider.defaultShortcut
+        return next.normalized()
+    }
+
+    func normalized() -> VoiceRelaySettings {
+        var next = self
+        if next.provider == .doubaoInput {
+            next.provider = .wechatInput
+            next.triggerMode = VoiceInputProvider.wechatInput.defaultTriggerMode
+            next.shortcut = VoiceInputProvider.wechatInput.defaultShortcut
+        }
+        if next.provider == .macosDictation {
+            next.provider = .shandianshuo
+            next.triggerMode = VoiceInputProvider.shandianshuo.defaultTriggerMode
+            next.shortcut = VoiceInputProvider.shandianshuo.defaultShortcut
+        }
+        if next.shortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            next.shortcut = next.provider.defaultShortcut
+        }
+        return next
+    }
 }
 
 struct TargetProfile: Codable {
@@ -74,25 +157,29 @@ struct TargetProfile: Codable {
     var writeMode: WriteMode
     /// 同步语义。复杂编辑器用 editor，避免全量镜像清空整页文档。
     var syncMode: SyncMode
+    /// 语音传递模式启动/停止时触发的远端语音输入快捷键。
+    var voiceShortcut: KeyShortcut
 
-    // 向后兼容：旧配置文件无 writeMode/syncMode 时默认 .auto/.mirror。
+    // 向后兼容：旧配置文件无 writeMode/syncMode/voiceShortcut 时补默认值。
     enum CodingKeys: String, CodingKey {
         case displayName, bundleId, iconDataUrl, activationMode, launchIfNotRunning, focusMode, focusShortcut
         case focusWaitMs, sendMode, sendShortcut, sendButtonTitleContains, clearAfterSend
-        case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode, syncMode
+        case allowEmpty, keepForeground, maxTextLength, allowSelectAllReplace, writeMode, syncMode, voiceShortcut
     }
 
     init(displayName: String, bundleId: String, activationMode: ActivationMode, launchIfNotRunning: Bool,
          focusMode: FocusMode, focusShortcut: KeyShortcut?, focusWaitMs: Int, sendMode: SendMode,
          sendShortcut: KeyShortcut?, sendButtonTitleContains: String?, clearAfterSend: Bool,
          allowEmpty: Bool, keepForeground: Bool, maxTextLength: Int, allowSelectAllReplace: Bool,
-         writeMode: WriteMode, syncMode: SyncMode = .mirror, iconDataUrl: String? = nil) {
+         writeMode: WriteMode, syncMode: SyncMode = .mirror, voiceShortcut: KeyShortcut = .rightOption,
+         iconDataUrl: String? = nil) {
         self.displayName = displayName; self.bundleId = bundleId; self.iconDataUrl = iconDataUrl; self.activationMode = activationMode
         self.launchIfNotRunning = launchIfNotRunning; self.focusMode = focusMode; self.focusShortcut = focusShortcut
         self.focusWaitMs = focusWaitMs; self.sendMode = sendMode; self.sendShortcut = sendShortcut
         self.sendButtonTitleContains = sendButtonTitleContains; self.clearAfterSend = clearAfterSend
         self.allowEmpty = allowEmpty; self.keepForeground = keepForeground; self.maxTextLength = maxTextLength
         self.allowSelectAllReplace = allowSelectAllReplace; self.writeMode = writeMode; self.syncMode = syncMode
+        self.voiceShortcut = voiceShortcut
     }
 
     init(from decoder: Decoder) throws {
@@ -115,6 +202,7 @@ struct TargetProfile: Codable {
         allowSelectAllReplace = try c.decode(Bool.self, forKey: .allowSelectAllReplace)
         writeMode = try c.decodeIfPresent(WriteMode.self, forKey: .writeMode) ?? .auto
         syncMode = try c.decodeIfPresent(SyncMode.self, forKey: .syncMode) ?? .mirror
+        voiceShortcut = try c.decodeIfPresent(KeyShortcut.self, forKey: .voiceShortcut) ?? .rightOption
     }
 
     static func defaultFor(_ id: TargetId) -> TargetProfile {
@@ -192,6 +280,7 @@ struct TargetConfigEntry: Codable, Sendable {
 /// 全部目标的配置集合，JSON 持久化到 Application Support。
 final class TargetConfigStore {
     private(set) var entries: [TargetId: TargetConfigEntry]
+    private(set) var voiceRelaySettings: VoiceRelaySettings
     private let fileURL: URL
 
     init(fileURL: URL? = nil, isBundleInstalled: ((String) -> Bool)? = nil) {
@@ -205,23 +294,36 @@ final class TargetConfigStore {
             try? fm.createDirectory(at: base, withIntermediateDirectories: true)
             self.fileURL = base.appendingPathComponent("targets.json")
         }
-        self.entries = TargetConfigStore.load(from: self.fileURL,
-                                              isBundleInstalled: isBundleInstalled ?? PresetTargetCatalog.isInstalled)
+        let loaded = TargetConfigStore.load(from: self.fileURL,
+                                            isBundleInstalled: isBundleInstalled ?? PresetTargetCatalog.isInstalled)
+        self.entries = loaded.entries
+        self.voiceRelaySettings = loaded.voiceRelaySettings
     }
 
     private struct StoredConfig: Codable {
         var targets: [TargetConfigEntry]
+        var voiceRelaySettings: VoiceRelaySettings?
     }
 
-    private static func load(from url: URL, isBundleInstalled: (String) -> Bool) -> [TargetId: TargetConfigEntry] {
+    private struct LoadedConfig {
+        var entries: [TargetId: TargetConfigEntry]
+        var voiceRelaySettings: VoiceRelaySettings
+    }
+
+    private static func load(from url: URL, isBundleInstalled: (String) -> Bool) -> LoadedConfig {
         var result = presetEntries(isBundleInstalled: isBundleInstalled)
-        guard let data = try? Data(contentsOf: url) else { return result }
+        var voiceRelaySettings = VoiceRelaySettings.disabled
+        guard let data = try? Data(contentsOf: url) else {
+            return LoadedConfig(entries: result, voiceRelaySettings: voiceRelaySettings)
+        }
 
         if let decoded = try? JSONDecoder().decode(StoredConfig.self, from: data) {
             for entry in decoded.targets {
                 result[entry.id] = migrateStoredEntry(entry, isBundleInstalled: isBundleInstalled)
             }
-            return fillMissingPresets(result, isBundleInstalled: isBundleInstalled)
+            voiceRelaySettings = decoded.voiceRelaySettings?.normalized() ?? .disabled
+            return LoadedConfig(entries: fillMissingPresets(result, isBundleInstalled: isBundleInstalled),
+                                voiceRelaySettings: voiceRelaySettings)
         }
 
         // 兼容旧版 targets.json: { "codex": TargetProfile, ... }
@@ -233,10 +335,11 @@ final class TargetConfigStore {
                     result[id] = migrateStoredEntry(entry, isBundleInstalled: isBundleInstalled)
                 }
             }
-            return fillMissingPresets(result, isBundleInstalled: isBundleInstalled)
+            return LoadedConfig(entries: fillMissingPresets(result, isBundleInstalled: isBundleInstalled),
+                                voiceRelaySettings: voiceRelaySettings)
         }
 
-        return result
+        return LoadedConfig(entries: result, voiceRelaySettings: voiceRelaySettings)
     }
 
     private static func presetEntries(isBundleInstalled: (String) -> Bool) -> [TargetId: TargetConfigEntry] {
@@ -334,6 +437,13 @@ final class TargetConfigStore {
     }
 
     @discardableResult
+    func updateVoiceRelaySettings(_ settings: VoiceRelaySettings) -> VoiceRelaySettings {
+        voiceRelaySettings = settings.normalized()
+        persist()
+        return voiceRelaySettings
+    }
+
+    @discardableResult
     func createCustom(displayName: String, bundleId: String?, iconDataUrl: String? = nil) -> TargetConfigEntry {
         let cleanName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let name = cleanName.isEmpty ? "Custom App" : cleanName
@@ -358,7 +468,7 @@ final class TargetConfigStore {
     }
 
     private func persist() {
-        let stored = StoredConfig(targets: allTargets)
+        let stored = StoredConfig(targets: allTargets, voiceRelaySettings: voiceRelaySettings)
         if let data = try? JSONEncoder().encode(stored) {
             try? data.write(to: fileURL)
         }
@@ -418,6 +528,9 @@ extension TargetProfile {
         }
         if targetId == .notion && p.syncMode == .mirror && p.writeMode == .clipboardReplace {
             p.allowSelectAllReplace = true
+        }
+        if p.voiceShortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            p.voiceShortcut = .rightOption
         }
         return p
     }
