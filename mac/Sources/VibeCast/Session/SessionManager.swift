@@ -71,6 +71,7 @@ final class SessionManager: ServerDelegate {
         var triggerMode: VoiceTriggerMode
         var shortcut: KeyShortcut
         var provider: VoiceInputProvider
+        var targetPid: pid_t?
         var previousInputDevice: AudioDeviceID?
         var relay: VoiceAudioRelay?
         var deviceName: String?
@@ -487,6 +488,7 @@ final class SessionManager: ServerDelegate {
         voiceStates[key] = VoiceRelayState(triggerMode: settings.triggerMode,
                                            shortcut: settings.shortcut,
                                            provider: settings.provider,
+                                           targetPid: nil,
                                            previousInputDevice: previousInputToRestore,
                                            relay: relay,
                                            deviceName: device.name)
@@ -510,7 +512,8 @@ final class SessionManager: ServerDelegate {
                 self.lock.lock()
                 self.activeBinding = binding
                 if var state = self.voiceStates[key] {
-                    state.hotkeyPressed = self.triggerVoiceInputStart(voiceSettings)
+                    state.targetPid = binding.pid
+                    state.hotkeyPressed = self.triggerVoiceInputStart(voiceSettings, targetPid: binding.pid)
                     self.voiceStates[key] = state
                 }
                 self.lock.unlock()
@@ -595,7 +598,7 @@ final class SessionManager: ServerDelegate {
     private func stopVoiceState(_ state: VoiceRelayState) {
         if state.hotkeyPressed {
             if state.provider == .macosDictation {
-                _ = KeyboardSynth.pressMacOSDictation(state.shortcut)
+                _ = triggerMacOSDictationMenu(pid: state.targetPid, start: false) || KeyboardSynth.pressMacOSDictation(state.shortcut)
             } else {
                 switch state.triggerMode {
                 case .toggle:
@@ -621,9 +624,9 @@ final class SessionManager: ServerDelegate {
                                mode: "dedicated_virtual_input")
     }
 
-    private func triggerVoiceInputStart(_ settings: VoiceRelaySettings) -> Bool {
+    private func triggerVoiceInputStart(_ settings: VoiceRelaySettings, targetPid: pid_t? = nil) -> Bool {
         if settings.provider == .macosDictation {
-            return KeyboardSynth.pressMacOSDictation(settings.shortcut)
+            return triggerMacOSDictationMenu(pid: targetPid, start: true) || KeyboardSynth.pressMacOSDictation(settings.shortcut)
         }
         switch settings.triggerMode {
         case .toggle:
@@ -631,6 +634,14 @@ final class SessionManager: ServerDelegate {
         case .hold:
             return KeyboardSynth.keyDown(settings.shortcut)
         }
+    }
+
+    private func triggerMacOSDictationMenu(pid: pid_t?, start: Bool) -> Bool {
+        guard let pid else { return false }
+        let titles = start
+            ? ["Start Dictation", "开始听写", "開始聽寫", "Dictation", "听写", "聽寫"]
+            : ["Stop Dictation", "停止听写", "停止聽寫", "Dictation", "听写", "聽寫"]
+        return AXSupport.pressMenuItem(pid: pid, titleMatches: titles)
     }
 
     /// 核心写入流程：Revision 校验 → 绑定校验 → TextWriter 写入 → text_ack。
