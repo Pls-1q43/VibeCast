@@ -594,11 +594,15 @@ final class SessionManager: ServerDelegate {
 
     private func stopVoiceState(_ state: VoiceRelayState) {
         if state.hotkeyPressed {
-            switch state.triggerMode {
-            case .toggle:
-                _ = KeyboardSynth.press(state.shortcut)
-            case .hold:
-                _ = KeyboardSynth.keyUp(state.shortcut)
+            if state.provider == .macosDictation {
+                _ = KeyboardSynth.pressMacOSDictation(state.shortcut)
+            } else {
+                switch state.triggerMode {
+                case .toggle:
+                    _ = KeyboardSynth.press(state.shortcut)
+                case .hold:
+                    _ = KeyboardSynth.keyUp(state.shortcut)
+                }
             }
         }
         state.relay?.stop()
@@ -618,6 +622,9 @@ final class SessionManager: ServerDelegate {
     }
 
     private func triggerVoiceInputStart(_ settings: VoiceRelaySettings) -> Bool {
+        if settings.provider == .macosDictation {
+            return KeyboardSynth.pressMacOSDictation(settings.shortcut)
+        }
         switch settings.triggerMode {
         case .toggle:
             return KeyboardSynth.press(settings.shortcut)
