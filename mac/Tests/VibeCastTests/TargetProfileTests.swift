@@ -151,6 +151,19 @@ final class TargetProfileTests: XCTestCase {
         XCTAssertEqual(normalized.managedVirtualAudioDevice, "BlackHole 2ch")
     }
 
+    func testMacOSDictationDefaultsToF5AndMigratesOldRightOption() {
+        XCTAssertEqual(VoiceInputProvider.macosDictation.defaultShortcut, .f5)
+
+        let settings = VoiceRelaySettings(enabled: true,
+                                          provider: .macosDictation,
+                                          triggerMode: .toggle,
+                                          shortcut: .rightOption,
+                                          managedOriginalAudioDevice: nil,
+                                          managedVirtualAudioDevice: nil)
+
+        XCTAssertEqual(settings.normalized().shortcut, .f5)
+    }
+
     func testNormalizeClampsRiskyValuesAndMigratesLegacyClipboardPaste() {
         var p = TargetProfile.defaultFor(.codex)
         p.displayName = "  "

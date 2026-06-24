@@ -616,6 +616,9 @@ function renderVoiceProviderSetupHint(provider: VoiceInputProvider): HTMLElement
     case "doubao_input":
       key = "cfg.voiceProviderDoubaoHint";
       break;
+    case "macos_dictation":
+      key = "cfg.voiceProviderMacOSHint";
+      break;
     default:
       break;
   }
@@ -1032,9 +1035,12 @@ function defaultVoiceSettings(): VoiceRelaySettings {
 function normalizeVoiceSettings(settings: VoiceRelaySettings): VoiceRelaySettings {
   const provider = normalizeVoiceProvider(settings.provider);
   const defaults = providerDefaults(provider);
-  const shortcut = settings.shortcut?.key?.trim()
+  let shortcut = settings.shortcut?.key?.trim()
     ? { modifiers: settings.shortcut.modifiers ?? [], key: settings.shortcut.key.trim() }
     : defaults.shortcut;
+  if (provider === "macos_dictation" && voiceShortcutPresetValue(shortcut) === "right_option") {
+    shortcut = defaults.shortcut;
+  }
   return {
     enabled: Boolean(settings.enabled),
     provider,
@@ -1059,6 +1065,7 @@ function providerDefaults(provider: VoiceInputProvider): Pick<VoiceRelaySettings
     case "doubao_input":
       return { triggerMode: "hold", shortcut: { modifiers: [], key: "fn" } };
     case "macos_dictation":
+      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "f5" } };
     case "custom":
       return { triggerMode: "toggle", shortcut: { modifiers: [], key: "right_option" } };
   }
@@ -1078,6 +1085,8 @@ function voiceShortcutOptions(): [string, string][] {
   return [
     ["right_command", i18n.t("cfg.voiceShortcutRightCommand")],
     ["right_option", i18n.t("cfg.voiceShortcutRightOption")],
+    ["f5", i18n.t("cfg.voiceShortcutF5")],
+    ["control_double", i18n.t("cfg.voiceShortcutDoubleControl")],
     ["fn", i18n.t("cfg.voiceShortcutFn")],
     ["left_command", i18n.t("cfg.voiceShortcutLeftCommand")],
     ["left_option", i18n.t("cfg.voiceShortcutLeftOption")],
@@ -1102,6 +1111,15 @@ function voiceShortcutPresetValue(shortcut: KeyShortcut): string {
   case "option_right":
   case "opt_right":
     return "right_option";
+  case "f5":
+  case "dictation":
+  case "dictation_key":
+    return "f5";
+  case "control_double":
+  case "double_control":
+  case "ctrl_double":
+  case "double_ctrl":
+    return "control_double";
   case "left_command":
   case "leftcommand":
   case "left_cmd":

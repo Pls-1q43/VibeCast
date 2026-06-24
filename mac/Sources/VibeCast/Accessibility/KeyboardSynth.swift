@@ -15,6 +15,9 @@ enum KeyboardSynth {
         "escape": CGKeyCode(kVK_Escape),
         "delete": CGKeyCode(kVK_Delete),        // 退格删除（删除选中内容）
         "forwarddelete": CGKeyCode(kVK_ForwardDelete),
+        "f5": CGKeyCode(kVK_F5),
+        "dictation": CGKeyCode(kVK_F5),
+        "dictation_key": CGKeyCode(kVK_F5),
         "left_command": CGKeyCode(kVK_Command),
         "leftcommand": CGKeyCode(kVK_Command),
         "left_cmd": CGKeyCode(kVK_Command),
@@ -51,6 +54,8 @@ enum KeyboardSynth {
         "rightctrl": CGKeyCode(kVK_RightControl),
         "control_right": CGKeyCode(kVK_RightControl),
         "ctrl_right": CGKeyCode(kVK_RightControl),
+        "control": CGKeyCode(kVK_Control),
+        "ctrl": CGKeyCode(kVK_Control),
         "left_shift": CGKeyCode(kVK_Shift),
         "leftshift": CGKeyCode(kVK_Shift),
         "shift_left": CGKeyCode(kVK_Shift),
@@ -115,6 +120,9 @@ enum KeyboardSynth {
     /// 向系统投递一个快捷键（键按下+抬起）。返回是否成功映射键码。
     @discardableResult
     static func press(_ shortcut: KeyShortcut) -> Bool {
+        if isDoubleControl(shortcut.key) {
+            return pressDoubleControl()
+        }
         if isFunctionKey(shortcut.key) {
             guard postFunction(shortcut, keyDown: true) else { return false }
             Thread.sleep(forTimeInterval: 0.035)
@@ -148,6 +156,9 @@ enum KeyboardSynth {
     }
 
     private static func post(_ shortcut: KeyShortcut, keyDown: Bool) -> Bool {
+        if isDoubleControl(shortcut.key) {
+            return keyDown ? pressDoubleControl() : true
+        }
         if isFunctionKey(shortcut.key) {
             return postFunction(shortcut, keyDown: keyDown)
         }
@@ -177,5 +188,21 @@ enum KeyboardSynth {
 
     private static func keyCode(for shortcut: KeyShortcut) -> CGKeyCode? {
         keyCodes[normalizedKey(shortcut.key)]
+    }
+
+    private static func isDoubleControl(_ key: String) -> Bool {
+        switch normalizedKey(key) {
+        case "control_double", "double_control", "ctrl_double", "double_ctrl":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func pressDoubleControl() -> Bool {
+        let control = KeyShortcut(modifiers: [], key: "control")
+        guard press(control) else { return false }
+        Thread.sleep(forTimeInterval: 0.08)
+        return press(control)
     }
 }
