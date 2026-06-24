@@ -20,8 +20,9 @@ enum KeyboardSynth {
 
     private static let appleSymbolicHotKeysPath =
         ("~/Library/Preferences/com.apple.symbolichotkeys.plist" as NSString).expandingTildeInPath
-    private static let appleDictationHotKeyId = "164"
-    private static let specialDictationKeyCode = CGKeyCode(176)
+    private static let appleDictationModifierHotKeyId = "164"
+    private static let appleDictationKeyHotKeyId = "175"
+    private static let specialDictationKeyCode = CGKeyCode(178)
 
     /// 主键名 → 虚拟键码（仅覆盖常用键）。
     private static let keyCodes: [String: CGKeyCode] = [
@@ -167,8 +168,7 @@ enum KeyboardSynth {
     @discardableResult
     static func pressMacOSDictation(_ shortcut: KeyShortcut) -> Bool {
         let preferredKind = dictationKind(for: shortcut.key)
-        if let systemShortcut = loadSystemDictationShortcut(),
-           preferredKind == .other || systemShortcut.kind == preferredKind {
+        if let systemShortcut = loadSystemDictationShortcut(preferredKind: preferredKind) {
             return postSystemDictationShortcut(systemShortcut)
         }
 
@@ -254,17 +254,39 @@ enum KeyboardSynth {
         }
     }
 
-    private static func loadSystemDictationShortcut() -> SystemDictationShortcut? {
+    private static func loadSystemDictationShortcut(preferredKind: DictationShortcutKind) -> SystemDictationShortcut? {
         guard let root = NSDictionary(contentsOfFile: appleSymbolicHotKeysPath) as? [String: Any],
-              let hotKeys = root["AppleSymbolicHotKeys"] as? [String: Any],
-              let dictation = hotKeys[appleDictationHotKeyId] as? [String: Any],
+              let hotKeys = root["AppleSymbolicHotKeys"] as? [String: Any] else {
+            return nil
+        }
+
+        let candidates: [String]
+        switch preferredKind {
+        case .dictationKey:
+            candidates = [appleDictationKeyHotKeyId, appleDictationModifierHotKeyId]
+        case .doubleControl:
+            candidates = [appleDictationModifierHotKeyId, appleDictationKeyHotKeyId]
+        case .other:
+            candidates = [appleDictationKeyHotKeyId, appleDictationModifierHotKeyId]
+        }
+
+        for id in candidates {
+            guard let shortcut = parseSystemDictationShortcut(hotKeys[id]) else { continue }
+            if preferredKind == .other || shortcut.kind == preferredKind {
+                return shortcut
+            }
+        }
+        return nil
+    }
+
+    private static func parseSystemDictationShortcut(_ raw: Any?) -> SystemDictationShortcut? {
+        guard let dictation = raw as? [String: Any],
               (dictation["enabled"] as? NSNumber)?.boolValue == true,
               let value = dictation["value"] as? [String: Any],
               let type = value["type"] as? String,
               let parameters = value["parameters"] as? [NSNumber] else {
             return nil
         }
-
         if type == "standard", parameters.count >= 3 {
             let keyCode = CGKeyCode(parameters[1].uint16Value)
             let flags = CGEventFlags(rawValue: parameters[2].uint64Value)
