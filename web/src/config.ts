@@ -1030,18 +1030,23 @@ function defaultVoiceSettings(): VoiceRelaySettings {
 }
 
 function normalizeVoiceSettings(settings: VoiceRelaySettings): VoiceRelaySettings {
-  const defaults = providerDefaults(settings.provider);
+  const provider = normalizeVoiceProvider(settings.provider);
+  const defaults = providerDefaults(provider);
   const shortcut = settings.shortcut?.key?.trim()
     ? { modifiers: settings.shortcut.modifiers ?? [], key: settings.shortcut.key.trim() }
     : defaults.shortcut;
   return {
     enabled: Boolean(settings.enabled),
-    provider: settings.provider,
+    provider,
     triggerMode: settings.triggerMode || defaults.triggerMode,
     shortcut,
     managedOriginalAudioDevice: settings.managedOriginalAudioDevice ?? null,
     managedVirtualAudioDevice: settings.managedVirtualAudioDevice ?? null,
   };
+}
+
+function normalizeVoiceProvider(provider: VoiceInputProvider): VoiceInputProvider {
+  return provider === "doubao_input" ? "wechat_input" : provider;
 }
 
 function providerDefaults(provider: VoiceInputProvider): Pick<VoiceRelaySettings, "triggerMode" | "shortcut"> {
@@ -1064,7 +1069,6 @@ function voiceProviderOptions(): [string, string][] {
     ["shandianshuo", i18n.t("cfg.voiceProviderShanDianShuo")],
     ["typeless", i18n.t("cfg.voiceProviderTypeless")],
     ["wechat_input", i18n.t("cfg.voiceProviderWechat")],
-    ["doubao_input", i18n.t("cfg.voiceProviderDoubao")],
     ["macos_dictation", i18n.t("cfg.voiceProviderMacOS")],
     ["custom", i18n.t("cfg.voiceProviderCustom")],
   ];

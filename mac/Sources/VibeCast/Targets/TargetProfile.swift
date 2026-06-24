@@ -114,6 +114,11 @@ struct VoiceRelaySettings: Codable, Equatable, Sendable {
 
     func normalized() -> VoiceRelaySettings {
         var next = self
+        if next.provider == .doubaoInput {
+            next.provider = .wechatInput
+            next.triggerMode = VoiceInputProvider.wechatInput.defaultTriggerMode
+            next.shortcut = VoiceInputProvider.wechatInput.defaultShortcut
+        }
         if next.shortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             next.shortcut = next.provider.defaultShortcut
         }

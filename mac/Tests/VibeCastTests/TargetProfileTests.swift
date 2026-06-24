@@ -134,6 +134,23 @@ final class TargetProfileTests: XCTestCase {
         XCTAssertEqual(reloaded.voiceRelaySettings, settings)
     }
 
+    func testVoiceRelaySettingsMigratesUnsupportedDoubaoProvider() {
+        let settings = VoiceRelaySettings(enabled: true,
+                                          provider: .doubaoInput,
+                                          triggerMode: .toggle,
+                                          shortcut: .rightCommand,
+                                          managedOriginalAudioDevice: "MacBook Pro Microphone",
+                                          managedVirtualAudioDevice: "BlackHole 2ch")
+
+        let normalized = settings.normalized()
+
+        XCTAssertEqual(normalized.provider, .wechatInput)
+        XCTAssertEqual(normalized.triggerMode, .hold)
+        XCTAssertEqual(normalized.shortcut, .fn)
+        XCTAssertEqual(normalized.managedOriginalAudioDevice, "MacBook Pro Microphone")
+        XCTAssertEqual(normalized.managedVirtualAudioDevice, "BlackHole 2ch")
+    }
+
     func testNormalizeClampsRiskyValuesAndMigratesLegacyClipboardPaste() {
         var p = TargetProfile.defaultFor(.codex)
         p.displayName = "  "
