@@ -51,8 +51,6 @@ struct KeyShortcut: Codable, Equatable, Sendable {
     static let rightOption = KeyShortcut(modifiers: [], key: "right_option")
     static let rightCommand = KeyShortcut(modifiers: [], key: "right_command")
     static let fn = KeyShortcut(modifiers: [], key: "fn")
-    static let f5 = KeyShortcut(modifiers: [], key: "f5")
-    static let doubleControl = KeyShortcut(modifiers: [], key: "control_double")
 }
 
 enum VoiceInputProvider: String, Codable, Sendable, CaseIterable {
@@ -72,7 +70,7 @@ enum VoiceInputProvider: String, Codable, Sendable, CaseIterable {
         case .wechatInput, .doubaoInput:
             return .fn
         case .macosDictation:
-            return .f5
+            return VoiceInputProvider.shandianshuo.defaultShortcut
         case .custom:
             return .rightOption
         }
@@ -123,8 +121,10 @@ struct VoiceRelaySettings: Codable, Equatable, Sendable {
             next.triggerMode = VoiceInputProvider.wechatInput.defaultTriggerMode
             next.shortcut = VoiceInputProvider.wechatInput.defaultShortcut
         }
-        if next.provider == .macosDictation && next.shortcut == .rightOption {
-            next.shortcut = VoiceInputProvider.macosDictation.defaultShortcut
+        if next.provider == .macosDictation {
+            next.provider = .shandianshuo
+            next.triggerMode = VoiceInputProvider.shandianshuo.defaultTriggerMode
+            next.shortcut = VoiceInputProvider.shandianshuo.defaultShortcut
         }
         if next.shortcut.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             next.shortcut = next.provider.defaultShortcut

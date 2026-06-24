@@ -5,25 +5,6 @@ import CoreGraphics
 import Carbon.HIToolbox
 
 enum KeyboardSynth {
-    private enum DictationShortcutKind {
-        case dictationKey
-        case doubleControl
-        case other
-    }
-
-    private struct SystemDictationShortcut {
-        var keyCode: CGKeyCode
-        var flags: CGEventFlags
-        var pressCount: Int
-        var kind: DictationShortcutKind
-    }
-
-    private static let appleSymbolicHotKeysPath =
-        ("~/Library/Preferences/com.apple.symbolichotkeys.plist" as NSString).expandingTildeInPath
-    private static let appleDictationModifierHotKeyId = "164"
-    private static let appleDictationKeyHotKeyId = "175"
-    private static let specialDictationKeyCode = CGKeyCode(178)
-
     /// 主键名 → 虚拟键码（仅覆盖常用键）。
     private static let keyCodes: [String: CGKeyCode] = [
         "enter": CGKeyCode(kVK_Return),
@@ -34,8 +15,6 @@ enum KeyboardSynth {
         "delete": CGKeyCode(kVK_Delete),        // 退格删除（删除选中内容）
         "forwarddelete": CGKeyCode(kVK_ForwardDelete),
         "f5": CGKeyCode(kVK_F5),
-        "dictation": CGKeyCode(kVK_F5),
-        "dictation_key": CGKeyCode(kVK_F5),
         "left_command": CGKeyCode(kVK_Command),
         "leftcommand": CGKeyCode(kVK_Command),
         "left_cmd": CGKeyCode(kVK_Command),
@@ -138,9 +117,6 @@ enum KeyboardSynth {
     /// 向系统投递一个快捷键（键按下+抬起）。返回是否成功映射键码。
     @discardableResult
     static func press(_ shortcut: KeyShortcut) -> Bool {
-        if isDoubleControl(shortcut.key) {
-            return pressDoubleControl()
-        }
         if isFunctionKey(shortcut.key) {
             guard postFunction(shortcut, keyDown: true) else { return false }
             Thread.sleep(forTimeInterval: 0.035)
@@ -163,25 +139,6 @@ enum KeyboardSynth {
         return true
     }
 
-    /// 触发 macOS 系统听写。它不是普通 F5：系统偏好会把听写记录成
-    /// com.apple.symbolichotkeys 的特殊项，且需要投递到 session event tap。
-    @discardableResult
-    static func pressMacOSDictation(_ shortcut: KeyShortcut) -> Bool {
-        let preferredKind = dictationKind(for: shortcut.key)
-        if let systemShortcut = loadSystemDictationShortcut(preferredKind: preferredKind) {
-            return postSystemDictationShortcut(systemShortcut)
-        }
-
-        switch preferredKind {
-        case .dictationKey:
-            return postSessionKeyPress(keyCode: specialDictationKeyCode, flags: [])
-        case .doubleControl:
-            return pressDoubleControlForDictation()
-        case .other:
-            return press(shortcut)
-        }
-    }
-
     @discardableResult
     static func keyDown(_ shortcut: KeyShortcut) -> Bool {
         post(shortcut, keyDown: true)
@@ -193,9 +150,6 @@ enum KeyboardSynth {
     }
 
     private static func post(_ shortcut: KeyShortcut, keyDown: Bool) -> Bool {
-        if isDoubleControl(shortcut.key) {
-            return keyDown ? pressDoubleControl() : true
-        }
         if isFunctionKey(shortcut.key) {
             return postFunction(shortcut, keyDown: keyDown)
         }
@@ -225,126 +179,5 @@ enum KeyboardSynth {
 
     private static func keyCode(for shortcut: KeyShortcut) -> CGKeyCode? {
         keyCodes[normalizedKey(shortcut.key)]
-    }
-
-    private static func isDoubleControl(_ key: String) -> Bool {
-        switch normalizedKey(key) {
-        case "control_double", "double_control", "ctrl_double", "double_ctrl":
-            return true
-        default:
-            return false
-        }
-    }
-
-    private static func pressDoubleControl() -> Bool {
-        let control = KeyShortcut(modifiers: [], key: "control")
-        guard press(control) else { return false }
-        Thread.sleep(forTimeInterval: 0.08)
-        return press(control)
-    }
-
-    private static func dictationKind(for key: String) -> DictationShortcutKind {
-        switch normalizedKey(key) {
-        case "f5", "dictation", "dictation_key":
-            return .dictationKey
-        case "control_double", "double_control", "ctrl_double", "double_ctrl":
-            return .doubleControl
-        default:
-            return .other
-        }
-    }
-
-    private static func loadSystemDictationShortcut(preferredKind: DictationShortcutKind) -> SystemDictationShortcut? {
-        guard let root = NSDictionary(contentsOfFile: appleSymbolicHotKeysPath) as? [String: Any],
-              let hotKeys = root["AppleSymbolicHotKeys"] as? [String: Any] else {
-            return nil
-        }
-
-        let candidates: [String]
-        switch preferredKind {
-        case .dictationKey:
-            candidates = [appleDictationKeyHotKeyId, appleDictationModifierHotKeyId]
-        case .doubleControl:
-            candidates = [appleDictationModifierHotKeyId, appleDictationKeyHotKeyId]
-        case .other:
-            candidates = [appleDictationKeyHotKeyId, appleDictationModifierHotKeyId]
-        }
-
-        for id in candidates {
-            guard let shortcut = parseSystemDictationShortcut(hotKeys[id]) else { continue }
-            if preferredKind == .other || shortcut.kind == preferredKind {
-                return shortcut
-            }
-        }
-        return nil
-    }
-
-    private static func parseSystemDictationShortcut(_ raw: Any?) -> SystemDictationShortcut? {
-        guard let dictation = raw as? [String: Any],
-              (dictation["enabled"] as? NSNumber)?.boolValue == true,
-              let value = dictation["value"] as? [String: Any],
-              let type = value["type"] as? String,
-              let parameters = value["parameters"] as? [NSNumber] else {
-            return nil
-        }
-        if type == "standard", parameters.count >= 3 {
-            let keyCode = CGKeyCode(parameters[1].uint16Value)
-            let flags = CGEventFlags(rawValue: parameters[2].uint64Value)
-            return SystemDictationShortcut(keyCode: keyCode,
-                                           flags: flags,
-                                           pressCount: 1,
-                                           kind: keyCode == specialDictationKeyCode || keyCode == CGKeyCode(kVK_F5) ? .dictationKey : .other)
-        }
-
-        guard let keyCode = modifierKeyCode(from: parameters.first?.uint64Value ?? 0) else {
-            return nil
-        }
-        let kind: DictationShortcutKind = keyCode == CGKeyCode(kVK_Control) || keyCode == CGKeyCode(kVK_RightControl) ? .doubleControl : .other
-        return SystemDictationShortcut(keyCode: keyCode,
-                                       flags: [],
-                                       pressCount: 2,
-                                       kind: kind)
-    }
-
-    private static func modifierKeyCode(from mask: UInt64) -> CGKeyCode? {
-        if (mask & 0x0010_0008) == 0x0010_0008 { return CGKeyCode(kVK_Command) }
-        if (mask & 0x0010_0010) == 0x0010_0010 { return CGKeyCode(kVK_RightCommand) }
-        if (mask & CGEventFlags.maskCommand.rawValue) == CGEventFlags.maskCommand.rawValue { return CGKeyCode(kVK_Command) }
-        if (mask & CGEventFlags.maskSecondaryFn.rawValue) == CGEventFlags.maskSecondaryFn.rawValue { return CGKeyCode(kVK_Function) }
-        if (mask & CGEventFlags.maskControl.rawValue) == CGEventFlags.maskControl.rawValue { return CGKeyCode(kVK_Control) }
-        if (mask & CGEventFlags.maskAlternate.rawValue) == CGEventFlags.maskAlternate.rawValue { return CGKeyCode(kVK_Option) }
-        if (mask & CGEventFlags.maskShift.rawValue) == CGEventFlags.maskShift.rawValue { return CGKeyCode(kVK_Shift) }
-        return nil
-    }
-
-    private static func postSystemDictationShortcut(_ shortcut: SystemDictationShortcut) -> Bool {
-        var ok = true
-        for index in 0..<max(1, shortcut.pressCount) {
-            ok = postSessionKeyPress(keyCode: shortcut.keyCode, flags: shortcut.flags) && ok
-            if index + 1 < shortcut.pressCount {
-                Thread.sleep(forTimeInterval: 0.12)
-            }
-        }
-        return ok
-    }
-
-    private static func pressDoubleControlForDictation() -> Bool {
-        let first = postSessionKeyPress(keyCode: CGKeyCode(kVK_Control), flags: [])
-        Thread.sleep(forTimeInterval: 0.12)
-        let second = postSessionKeyPress(keyCode: CGKeyCode(kVK_Control), flags: [])
-        return first && second
-    }
-
-    private static func postSessionKeyPress(keyCode: CGKeyCode, flags: CGEventFlags) -> Bool {
-        guard let down = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true),
-              let up = CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: false) else {
-            return false
-        }
-        down.flags = flags
-        up.flags = flags
-        down.post(tap: .cgSessionEventTap)
-        Thread.sleep(forTimeInterval: 0.04)
-        up.post(tap: .cgSessionEventTap)
-        return true
     }
 }

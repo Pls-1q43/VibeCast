@@ -616,9 +616,6 @@ function renderVoiceProviderSetupHint(provider: VoiceInputProvider): HTMLElement
     case "doubao_input":
       key = "cfg.voiceProviderDoubaoHint";
       break;
-    case "macos_dictation":
-      key = "cfg.voiceProviderMacOSHint";
-      break;
     default:
       break;
   }
@@ -1033,14 +1030,14 @@ function defaultVoiceSettings(): VoiceRelaySettings {
 }
 
 function normalizeVoiceSettings(settings: VoiceRelaySettings): VoiceRelaySettings {
+  const originalProvider = settings.provider;
   const provider = normalizeVoiceProvider(settings.provider);
   const defaults = providerDefaults(provider);
-  let shortcut = settings.shortcut?.key?.trim()
+  let shortcut = originalProvider === "macos_dictation"
+    ? defaults.shortcut
+    : settings.shortcut?.key?.trim()
     ? { modifiers: settings.shortcut.modifiers ?? [], key: settings.shortcut.key.trim() }
     : defaults.shortcut;
-  if (provider === "macos_dictation" && voiceShortcutPresetValue(shortcut) === "right_option") {
-    shortcut = defaults.shortcut;
-  }
   return {
     enabled: Boolean(settings.enabled),
     provider,
@@ -1052,7 +1049,9 @@ function normalizeVoiceSettings(settings: VoiceRelaySettings): VoiceRelaySetting
 }
 
 function normalizeVoiceProvider(provider: VoiceInputProvider): VoiceInputProvider {
-  return provider === "doubao_input" ? "wechat_input" : provider;
+  if (provider === "doubao_input") return "wechat_input";
+  if (provider === "macos_dictation") return "shandianshuo";
+  return provider;
 }
 
 function providerDefaults(provider: VoiceInputProvider): Pick<VoiceRelaySettings, "triggerMode" | "shortcut"> {
@@ -1065,7 +1064,7 @@ function providerDefaults(provider: VoiceInputProvider): Pick<VoiceRelaySettings
     case "doubao_input":
       return { triggerMode: "hold", shortcut: { modifiers: [], key: "fn" } };
     case "macos_dictation":
-      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "f5" } };
+      return providerDefaults("shandianshuo");
     case "custom":
       return { triggerMode: "toggle", shortcut: { modifiers: [], key: "right_option" } };
   }
@@ -1076,7 +1075,6 @@ function voiceProviderOptions(): [string, string][] {
     ["shandianshuo", i18n.t("cfg.voiceProviderShanDianShuo")],
     ["typeless", i18n.t("cfg.voiceProviderTypeless")],
     ["wechat_input", i18n.t("cfg.voiceProviderWechat")],
-    ["macos_dictation", i18n.t("cfg.voiceProviderMacOS")],
     ["custom", i18n.t("cfg.voiceProviderCustom")],
   ];
 }
@@ -1085,8 +1083,6 @@ function voiceShortcutOptions(): [string, string][] {
   return [
     ["right_command", i18n.t("cfg.voiceShortcutRightCommand")],
     ["right_option", i18n.t("cfg.voiceShortcutRightOption")],
-    ["f5", i18n.t("cfg.voiceShortcutF5")],
-    ["control_double", i18n.t("cfg.voiceShortcutDoubleControl")],
     ["fn", i18n.t("cfg.voiceShortcutFn")],
     ["left_command", i18n.t("cfg.voiceShortcutLeftCommand")],
     ["left_option", i18n.t("cfg.voiceShortcutLeftOption")],
@@ -1111,15 +1107,6 @@ function voiceShortcutPresetValue(shortcut: KeyShortcut): string {
   case "option_right":
   case "opt_right":
     return "right_option";
-  case "f5":
-  case "dictation":
-  case "dictation_key":
-    return "f5";
-  case "control_double":
-  case "double_control":
-  case "ctrl_double":
-  case "double_ctrl":
-    return "control_double";
   case "left_command":
   case "leftcommand":
   case "left_cmd":
