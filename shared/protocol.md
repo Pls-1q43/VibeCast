@@ -9,7 +9,7 @@
 
 - `protocolVersion`: 当前为 `1`
 - `sessionId`: 由手机端生成的 UUID，标识一次「目标编辑会话」。切换目标 = 新会话。
-- `targetId`: 目标字符串 ID。预置目标为 `codex` | `workbuddy` | `notion` | `obsidian` | `codebuddycn` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
+- `targetId`: 目标字符串 ID。动态目标 `current_app` 表示 Mac 当前前台应用；预置目标为 `codex` | `workbuddy` | `notion` | `obsidian` | `codebuddycn` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
 - `syncMode`: `mirror` 表示完整草稿镜像；`editor` 表示只替换本轮由 VibeCast 插入的文本段，用于 Obsidian、Notion 普通文档块等复杂编辑器。
 - `revision`: 每个 targetId 独立维护的单调递增整数，从 `1` 开始。Mac 只应用比已应用版本更高的快照。
 - 时间戳 `clientTimestamp`: 毫秒级 Unix 时间（可选，仅诊断用）。
@@ -43,6 +43,7 @@
   "serverName": "Jeffrey's Mac",
   "protocolVersion": 1,
   "targets": [
+    { "id": "current_app", "displayName": "当前应用：Codex", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "codex", "displayName": "Codex", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "workbuddy", "displayName": "WorkBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "notion", "displayName": "Notion", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
@@ -50,10 +51,23 @@
     { "id": "codebuddycn", "displayName": "CodeBuddyCN", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "codebuddy", "displayName": "CodeBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" }
   ],
-  "accessibilityGranted": true
+  "accessibilityGranted": true,
+  "voiceRelayEnabled": false
 }
 ```
-> `targets` 只返回已启用且已绑定 Bundle ID 的目标。手机端应按该列表动态渲染卡片，而不是写死预置目标。`iconDataUrl` 可省略，手机端应回退到预置图标或首字母图标。`syncMode=editor` 时手机端“发送”按钮显示为“完成”。
+> `targets` 只返回已启用且已绑定 Bundle ID 的目标，并可在第一项包含动态 `current_app`。手机端应按该列表动态渲染卡片，而不是写死预置目标。`iconDataUrl` 可省略，手机端应回退到预置图标或首字母图标。`syncMode=editor` 时手机端“发送”按钮显示为“完成”。
+
+### ← targets (Mac → 手机)
+当前应用或可用目标变化时，Mac 可主动推送最新目标列表；结构与 `hello_ack.targets` 相同。
+```json
+{
+  "type": "targets",
+  "targets": [
+    { "id": "current_app", "displayName": "当前应用：Notion", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
+    { "id": "codex", "displayName": "Codex", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" }
+  ]
+}
+```
 
 ### ← error (Mac → 手机，握手失败)
 ```json

@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         }
 
         registerSleepWakeObservers()
+        registerFrontmostAppObserver()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -55,12 +56,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
                        name: NSWorkspace.didWakeNotification, object: nil)
     }
 
+    private func registerFrontmostAppObserver() {
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(frontmostAppDidChange),
+                                                          name: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil)
+    }
+
     @objc private func systemWillSleep() {
         session.handleSystemWillSleep()
     }
 
     @objc private func systemDidWake() {
         session.handleSystemDidWake()
+    }
+
+    @objc private func frontmostAppDidChange() {
+        session.handleFrontmostApplicationChanged()
     }
 
     // MARK: - Server 生命周期

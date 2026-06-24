@@ -19,6 +19,8 @@ export class Card {
   readonly targetId: TargetId;
   readonly textarea: HTMLTextAreaElement;
   private root: HTMLElement;
+  private title: HTMLElement;
+  private icon: HTMLElement;
   private inputWrap: HTMLElement;
   private statusEl: HTMLElement;
   private sendBtn: HTMLButtonElement;
@@ -42,17 +44,17 @@ export class Card {
 
     // 头部：图标 + 名称 + 状态
     const header = el("header", "card__header");
-    const icon = renderTargetIcon(targetId, displayName, "card__icon", iconDataUrl);
+    this.icon = renderTargetIcon(targetId, displayName, "card__icon", iconDataUrl);
     const titleWrap = el("div", "card__titlewrap");
-    const title = el("h2", "card__title");
-    title.textContent = displayName;
+    this.title = el("h2", "card__title");
+    this.title.textContent = displayName;
     const labelId = `label-${targetId}`;
-    title.id = labelId;
+    this.title.id = labelId;
     this.statusEl = el("div", "card__status");
     this.statusEl.setAttribute("role", "status");
     this.statusEl.setAttribute("aria-live", "polite");
-    titleWrap.append(title, this.statusEl);
-    header.append(icon, titleWrap);
+    titleWrap.append(this.title, this.statusEl);
+    header.append(this.icon, titleWrap);
 
     // 文本框（标准 textarea，PRD 5.2）
     this.inputWrap = el("div", "card__inputwrap");
@@ -95,6 +97,14 @@ export class Card {
 
   get element(): HTMLElement {
     return this.root;
+  }
+
+  updateTarget(displayName: string, iconDataUrl: string | null | undefined): void {
+    this.root.setAttribute("aria-label", this.i18n.t("card.aria", { name: displayName }));
+    this.title.textContent = displayName;
+    const nextIcon = renderTargetIcon(this.targetId, displayName, "card__icon", iconDataUrl);
+    this.icon.replaceWith(nextIcon);
+    this.icon = nextIcon;
   }
 
   setSelected(selected: boolean): void {

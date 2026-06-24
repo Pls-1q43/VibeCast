@@ -203,10 +203,18 @@ export class App {
       if (!this.cards.has(target.id)) {
         this.addCard(target);
       } else {
-        this.cards.get(target.id)?.setAllowEmpty(target.allowEmpty);
-        this.cards.get(target.id)?.setSyncMode(target.syncMode);
-        this.cards.get(target.id)?.setVoiceRelayEnabled(this.voiceRelayEnabled);
+        const card = this.cards.get(target.id)!;
+        card.updateTarget(target.displayName, target.iconDataUrl);
+        card.setAllowEmpty(target.allowEmpty);
+        card.setSyncMode(target.syncMode);
+        card.setVoiceRelayEnabled(this.voiceRelayEnabled);
       }
+    }
+
+    for (const target of targets) {
+      if (!target.available) continue;
+      const card = this.cards.get(target.id);
+      if (card) this.cardList.append(card.element);
     }
 
     this.emptyState.hidden = this.cards.size > 0;
@@ -488,6 +496,10 @@ export class App {
         } else {
           for (const card of this.cards.values()) card.setStatus("idle");
         }
+        break;
+      }
+      case "targets": {
+        this.reconcileTargets(msg.targets);
         break;
       }
       case "target_status": {

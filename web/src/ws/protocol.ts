@@ -179,6 +179,11 @@ export interface HelloAckMessage {
   voiceRelayEnabled: boolean;
 }
 
+export interface TargetsMessage {
+  type: "targets";
+  targets: TargetInfo[];
+}
+
 export interface TargetStatusMessage {
   type: "target_status";
   sessionId: string;
@@ -423,6 +428,7 @@ export interface VoiceSettingsMessage {
 
 export type ServerMessage =
   | HelloAckMessage
+  | TargetsMessage
   | TargetStatusMessage
   | TextAckMessage
   | SendResultMessage

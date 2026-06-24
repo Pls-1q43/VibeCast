@@ -46,6 +46,15 @@ describe("Card", () => {
     expect(card.element.querySelector(".btn--primary")?.textContent).toBe("card.done");
   });
 
+  it("updates target title without rebuilding the card", () => {
+    const card = makeCard();
+
+    card.updateTarget("当前应用：Notion", null);
+
+    expect(card.element.querySelector(".card__title")?.textContent).toBe("当前应用：Notion");
+    expect(card.element.getAttribute("aria-label")).toBe("当前应用：Notion input card");
+  });
+
   it("starts voice mode on long press from compact input", () => {
     vi.useFakeTimers();
     const onVoiceHoldStart = vi.fn();

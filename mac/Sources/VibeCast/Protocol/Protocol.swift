@@ -14,6 +14,7 @@ struct TargetId: RawRepresentable, Codable, Hashable, Sendable, ExpressibleByStr
     static let obsidian = TargetId(rawValue: "obsidian")!
     static let codebuddycn = TargetId(rawValue: "codebuddycn")!
     static let codebuddy = TargetId(rawValue: "codebuddy")!
+    static let currentApp = TargetId(rawValue: "current_app")!
     static let presetIds: [TargetId] = [.codex, .workbuddy, .notion, .obsidian, .codebuddycn, .codebuddy]
 
     init?(_ rawValue: String) {
@@ -264,6 +265,11 @@ struct HelloAckMessage: Codable, Sendable {
     let targets: [TargetInfo]
     let accessibilityGranted: Bool
     let voiceRelayEnabled: Bool
+}
+
+struct TargetsMessage: Codable, Sendable {
+    var type = "targets"
+    let targets: [TargetInfo]
 }
 
 struct TargetStatusMessage: Codable, Sendable {

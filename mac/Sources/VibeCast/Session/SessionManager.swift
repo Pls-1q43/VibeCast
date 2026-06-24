@@ -47,12 +47,20 @@ final class SessionManager: ServerDelegate {
     private var voiceChunkRateLimiters: [UUID: MessageRateLimiter] = [:]
     /// editor 同步模式下，每个会话只替换本轮由 VibeCast 插入的文本段。
     private var editorStates: [EditorSessionKey: EditorInsertionState] = [:]
+    /// 动态“当前应用”目标：按 session 锁定选择时解析出的 Profile。
+    private var dynamicProfiles: [DynamicSessionKey: TargetProfile] = [:]
+    private var lastCurrentAppProfile: TargetProfile?
     /// 语音传递实验：跟踪手机端音频分片、虚拟麦克风输出和启动/停止热键。
     private var voiceStates: [VoiceSessionKey: VoiceRelayState] = [:]
     private let lock = NSLock()
     private let maxMessageBytes = 128 * 1024
 
     private struct EditorSessionKey: Hashable {
+        let sessionId: String
+        let targetId: TargetId
+    }
+
+    private struct DynamicSessionKey: Hashable {
         let sessionId: String
         let targetId: TargetId
     }
@@ -201,6 +209,7 @@ final class SessionManager: ServerDelegate {
             activeControllerId = nil
             activeBinding = nil
             editorStates.removeAll()
+            dynamicProfiles.removeAll()
         }
         let count = paired.count
         lock.unlock()
@@ -221,6 +230,7 @@ final class SessionManager: ServerDelegate {
         lock.lock()
         activeBinding = nil
         editorStates.removeAll()
+        dynamicProfiles.removeAll()
         let oldVoiceStates = Array(voiceStates.values)
         voiceStates.removeAll()
         lock.unlock()
@@ -243,6 +253,7 @@ final class SessionManager: ServerDelegate {
         activeControllerId = nil
         activeBinding = nil
         editorStates.removeAll()
+        dynamicProfiles.removeAll()
         let oldVoiceStates = Array(voiceStates.values)
         voiceStates.removeAll()
         let count = paired.count
@@ -287,20 +298,17 @@ final class SessionManager: ServerDelegate {
         let count = paired.count
         lock.unlock()
 
-        let targets = config.activeTargets.map { entry in
-            let profile = profileWithResolvedIcon(entry.profile)
-            return TargetInfo(id: entry.id, displayName: profile.displayName, available: true,
-                              clearAfterSend: profile.clearAfterSend, allowEmpty: profile.allowEmpty,
-                              syncMode: profile.syncMode,
-                              iconDataUrl: profile.iconDataUrl)
-        }
         send(conn, HelloAckMessage(serverName: serverName,
                                    protocolVersion: kProtocolVersion,
-                                   targets: targets,
+                                   targets: phoneTargets(),
                                    accessibilityGranted: AccessibilityPermission.isGranted,
                                    voiceRelayEnabled: config.voiceRelaySettings.enabled))
         delegate?.sessionPairedCountChanged(count)
         delegate?.sessionDidLog("paired \(hello.deviceName) (\(conn.id.uuidString.prefix(8)))")
+    }
+
+    func handleFrontmostApplicationChanged() {
+        broadcastPhoneTargets()
     }
 
     struct TargetedEnvelope: Codable { let sessionId: String; let targetId: TargetId }
@@ -311,10 +319,10 @@ final class SessionManager: ServerDelegate {
             sendError(conn, code: .badMessage, message: "select_target 结构错误")
             return
         }
-        guard config.isUsable(env.targetId) else {
+        guard let profile = profileForSelection(targetId: env.targetId, sessionId: env.sessionId) else {
             send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
                                            status: .error, errorCode: .unknownTarget,
-                                           message: "目标未启用或尚未配置 Bundle ID"))
+                                           message: "目标未启用、尚未配置 Bundle ID，或当前应用不可用"))
             return
         }
 
@@ -329,7 +337,6 @@ final class SessionManager: ServerDelegate {
         send(conn, TargetStatusMessage(sessionId: env.sessionId, targetId: env.targetId,
                                        status: .focusing, errorCode: nil, message: nil))
 
-        let profile = config.profile(env.targetId)
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
             let outcome = FocusController.focus(targetId: env.targetId, sessionId: env.sessionId, profile: profile)
@@ -370,8 +377,14 @@ final class SessionManager: ServerDelegate {
             sendError(conn, code: .badMessage, message: "text_snapshot 结构错误")
             return
         }
+        guard let profile = profileForActiveSession(targetId: msg.targetId, sessionId: msg.sessionId) else {
+            send(conn, TextAckMessage(sessionId: msg.sessionId, targetId: msg.targetId,
+                                      revision: msg.revision, applied: false, errorCode: .unknownTarget,
+                                      message: "目标未启用、尚未配置 Bundle ID，或当前应用不可用", verified: false))
+            return
+        }
         // 文本长度护栏（PRD 15.3）。
-        let maxLen = config.profile(msg.targetId).maxTextLength
+        let maxLen = profile.maxTextLength
         if msg.text.count > maxLen {
             send(conn, TextAckMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                       revision: msg.revision, applied: false, errorCode: .writeFailed))
@@ -404,9 +417,9 @@ final class SessionManager: ServerDelegate {
                                          receivedBytes: nil))
             return
         }
-        guard config.isUsable(msg.targetId) else {
+        guard let profile = profileForSelection(targetId: msg.targetId, sessionId: msg.sessionId) else {
             send(conn, VoiceStateMessage(sessionId: msg.sessionId, targetId: msg.targetId,
-                                         state: "error", message: "目标未启用或尚未配置 Bundle ID",
+                                         state: "error", message: "目标未启用、尚未配置 Bundle ID，或当前应用不可用",
                                          receivedBytes: nil))
             return
         }
@@ -495,7 +508,6 @@ final class SessionManager: ServerDelegate {
         send(conn, TargetStatusMessage(sessionId: msg.sessionId, targetId: msg.targetId,
                                        status: .focusing, errorCode: nil, message: nil))
 
-        let profile = config.profile(msg.targetId)
         let voiceSettings = settings
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
@@ -628,10 +640,10 @@ final class SessionManager: ServerDelegate {
 
     /// 核心写入流程：Revision 校验 → 绑定校验 → TextWriter 写入 → text_ack。
     private func applyText(_ conn: Connection, sessionId: String, targetId: TargetId, revision: Int, text: String) {
-        guard config.isUsable(targetId) else {
+        guard let prof = profileForActiveSession(targetId: targetId, sessionId: sessionId) else {
             send(conn, TextAckMessage(sessionId: sessionId, targetId: targetId,
                                       revision: revision, applied: false, errorCode: .unknownTarget,
-                                      message: "目标未启用或尚未配置 Bundle ID", verified: false))
+                                      message: "目标未启用、尚未配置 Bundle ID，或当前应用不可用", verified: false))
             return
         }
         // 1) Revision 单调校验（旧包丢弃，PRD 12.1）。
@@ -655,7 +667,6 @@ final class SessionManager: ServerDelegate {
         }
 
         // 3) 后台执行绑定校验 + 写入（含 AX/剪贴板，耗时）。
-        let prof = self.config.profile(targetId)
         focusQueue.async { [weak self, weak conn] in
             guard let self, let conn else { return }
 
@@ -740,10 +751,10 @@ final class SessionManager: ServerDelegate {
         }
         let targetId = msg.targetId
         let revision = msg.revision
-        guard config.isUsable(targetId) else {
+        guard let profile = profileForActiveSession(targetId: targetId, sessionId: msg.sessionId) else {
             send(conn, SendResultMessage(sessionId: msg.sessionId, targetId: targetId,
                                          revision: revision, success: false, errorCode: .unknownTarget,
-                                         message: "目标未启用或尚未配置 Bundle ID"))
+                                         message: "目标未启用、尚未配置 Bundle ID，或当前应用不可用"))
             return
         }
 
@@ -777,8 +788,6 @@ final class SessionManager: ServerDelegate {
                                          message: "目标会话已失效"))
             return
         }
-
-        let profile = config.profile(targetId)
 
         // 第二阶段：后台重新校验绑定 → 执行发送动作。
         focusQueue.async { [weak self, weak conn] in
@@ -853,6 +862,7 @@ final class SessionManager: ServerDelegate {
         delegate?.sessionDidLog("config updated \(msg.targetId.rawValue) bundleId=\(profile.bundleId.isEmpty ? "<empty>" : profile.bundleId)")
         // 回写最新全量配置，便于配置页确认。
         handleGetConfig(conn)
+        broadcastPhoneTargets()
         delegate?.sessionConfigChanged()
     }
 
@@ -1061,6 +1071,7 @@ final class SessionManager: ServerDelegate {
                                         iconDataUrl: msg.iconDataUrl)
         delegate?.sessionDidLog("config created \(entry.id.rawValue) bundleId=\(entry.profile.bundleId.isEmpty ? "<empty>" : entry.profile.bundleId)")
         handleGetConfig(conn)
+        broadcastPhoneTargets()
         delegate?.sessionConfigChanged()
     }
 
@@ -1075,6 +1086,7 @@ final class SessionManager: ServerDelegate {
         }
         delegate?.sessionDidLog("config deleted \(msg.targetId.rawValue)")
         handleGetConfig(conn)
+        broadcastPhoneTargets()
         delegate?.sessionConfigChanged()
     }
 
@@ -1089,6 +1101,7 @@ final class SessionManager: ServerDelegate {
         }
         delegate?.sessionDidLog("config enabled \(msg.targetId.rawValue)=\(msg.enabled)")
         handleGetConfig(conn)
+        broadcastPhoneTargets()
         delegate?.sessionConfigChanged()
     }
 
@@ -1117,11 +1130,101 @@ final class SessionManager: ServerDelegate {
         }
     }
 
+    // MARK: - 动态当前应用目标
+
+    private func phoneTargets() -> [TargetInfo] {
+        var targets: [TargetInfo] = []
+        if let current = currentAppTargetInfo() {
+            targets.append(current)
+        }
+        targets.append(contentsOf: config.activeTargets.map { entry in
+            let profile = profileWithResolvedIcon(entry.profile)
+            return TargetInfo(id: entry.id, displayName: profile.displayName, available: true,
+                              clearAfterSend: profile.clearAfterSend, allowEmpty: profile.allowEmpty,
+                              syncMode: profile.syncMode,
+                              iconDataUrl: profile.iconDataUrl)
+        })
+        return targets
+    }
+
+    private func currentAppTargetInfo() -> TargetInfo? {
+        guard let profile = rememberedCurrentAppProfile() else { return nil }
+        return TargetInfo(id: .currentApp, displayName: "当前应用：\(profile.displayName)", available: true,
+                          clearAfterSend: profile.clearAfterSend, allowEmpty: profile.allowEmpty,
+                          syncMode: profile.syncMode, iconDataUrl: profile.iconDataUrl)
+    }
+
+    private func currentAppProfile() -> TargetProfile? {
+        guard let app = RunningAppsProvider.frontmostRegularApp(),
+              let bundleId = app.bundleIdentifier,
+              let name = app.localizedName else {
+            return nil
+        }
+        var profile = TargetProfile.defaultFor(.currentApp)
+        profile.displayName = name
+        profile.bundleId = bundleId
+        profile.iconDataUrl = TargetIconProvider.iconDataURL(app: app) ?? TargetIconProvider.iconDataURL(bundleId: bundleId)
+        profile.launchIfNotRunning = false
+        profile.focusMode = .preserveLastFocus
+        profile.focusShortcut = nil
+        profile.focusWaitMs = 250
+        profile.clearAfterSend = true
+        profile.allowEmpty = false
+        profile.allowSelectAllReplace = true
+        profile.writeMode = .auto
+        profile.syncMode = .mirror
+        return profile.normalized()
+    }
+
+    private func rememberedCurrentAppProfile() -> TargetProfile? {
+        if let profile = currentAppProfile() {
+            lock.lock()
+            lastCurrentAppProfile = profile
+            lock.unlock()
+            return profile
+        }
+        lock.lock()
+        let profile = lastCurrentAppProfile
+        lock.unlock()
+        return profile
+    }
+
+    private func profileForSelection(targetId: TargetId, sessionId: String) -> TargetProfile? {
+        if targetId == .currentApp {
+            guard let profile = rememberedCurrentAppProfile() else { return nil }
+            lock.lock()
+            dynamicProfiles[DynamicSessionKey(sessionId: sessionId, targetId: targetId)] = profile
+            lock.unlock()
+            return profile
+        }
+        guard config.isUsable(targetId) else { return nil }
+        return config.profile(targetId)
+    }
+
+    private func profileForActiveSession(targetId: TargetId, sessionId: String) -> TargetProfile? {
+        if targetId == .currentApp {
+            lock.lock()
+            let profile = dynamicProfiles[DynamicSessionKey(sessionId: sessionId, targetId: targetId)]
+            lock.unlock()
+            return profile
+        }
+        guard config.isUsable(targetId) else { return nil }
+        return config.profile(targetId)
+    }
+
     // MARK: - 发送辅助
 
     private func send<T: Encodable>(_ conn: Connection, _ msg: T) {
         guard let data = try? ProtocolCodec.encode(msg), let s = String(data: data, encoding: .utf8) else { return }
         conn.sendText(s)
+    }
+
+    private func broadcastPhoneTargets() {
+        lock.lock()
+        let conns = Array(paired.values)
+        lock.unlock()
+        let message = TargetsMessage(targets: phoneTargets())
+        for conn in conns { send(conn, message) }
     }
 
     private func broadcastVoiceSettings(_ settings: VoiceRelaySettings, excluding excludedId: UUID? = nil) {
