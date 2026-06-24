@@ -1,0 +1,64 @@
+# VibeCast 0.4.0
+
+VibeCast 0.4.0 adds Voice Relay, a dynamic Current App target, configurable phone-page networking, and reliability fixes for Notion and service restarts.
+
+VibeCast 0.4.0 新增语音投递模式、动态“当前应用”投递对象、可配置的手机端网络监听，并修复 Notion 写入和服务重启相关问题。
+
+## Highlights / 亮点
+
+- Added Voice Relay: when enabled, the mobile input can be tapped for text entry or held to stream the phone microphone to a Mac-side voice input method.
+- 新增语音投递模式：开启后，移动端输入区可轻点进入文字输入，也可长按把手机麦克风实时传到 Mac 端语音输入法。
+- Added a dynamic Current App target at the top of the mobile target list; it follows the Mac foreground app and refreshes the displayed app name and icon when possible.
+- 移动端目标列表顶部新增动态“当前应用”目标；它会跟随 Mac 前台应用，并在可行时刷新显示的应用名和图标。
+- Improved the mobile input placeholder to read “点击输入文字消息或按住语音输入” and increased its contrast.
+- 移动端输入提示改为“点击输入文字消息或按住语音输入”，并略微加深颜色以提升可读性。
+- Added guided BlackHole 2ch installation and detection so Voice Relay can use a real virtual input device without bundling an unsigned audio driver.
+- 新增 BlackHole 2ch 的引导安装与检测，用真实虚拟输入设备承接语音投递，避免内包未签名音频驱动。
+- Added provider presets for ShanDianShuo, Typeless, and Mac WeChat Input, including shortcut defaults and microphone binding helpers where supported.
+- 新增闪电说、Typeless、Mac 微信输入法预设，包含默认唤醒快捷键，并在可支持的输入法上提供麦克风绑定辅助。
+- Removed the macOS Dictation preset because it could not be triggered reliably enough for public release.
+- 移除 macOS 听写预设；该方案无法达到公开发布所需的可靠性。
+- Added configurable phone-page bind IP and port with interface discovery, port conflict checks, and a security warning for listening on all interfaces.
+- 新增手机端页面的绑定 IP 与端口配置，支持自动嗅探本机地址、端口冲突提示，以及“全部放通”安全风险提示。
+- Kept the configuration page on `127.0.0.1` / `localhost` so a bad phone-page bind setting can no longer lock users out of configuration.
+- 配置页固定保持在 `127.0.0.1` / `localhost`，避免手机端绑定到不可用 IP 后连配置页也打不开。
+- Improved network-setting restarts so saving a new bind IP or port immediately restarts the phone service.
+- 改进网络设置保存后的服务重启逻辑，修改绑定 IP 或端口后手机端入口会立即按新配置生效。
+- Fixed Notion replace-mode write failures and made the diagnostics log dialog scroll instead of growing beyond the screen.
+- 修复 Notion 替换写入失败问题，并让日志弹窗使用可滚动文本框，避免日志过长撑爆弹窗。
+- Trimmed excess whitespace from the VibeCast logo asset.
+- 修复 VibeCast logo 右侧多余空白。
+
+## Installation Notes / 安装说明
+
+- This build is ad-hoc signed and not notarized with an Apple Developer ID.
+- 此版本使用 ad-hoc 签名，未通过 Apple Developer ID notarization。
+- If macOS blocks the app after download, open it from System Settings > Privacy & Security.
+- 如果 macOS 下载后拦截启动，请在“系统设置 > 隐私与安全性”中允许打开。
+- VibeCast requires macOS Accessibility permission before it can focus apps, write text, send, or trigger voice input shortcuts.
+- VibeCast 需要 macOS 辅助功能权限，才能聚焦目标 App、写入文本、发送内容或触发语音输入快捷键。
+- Existing target configuration is preserved. Existing `macos_dictation` Voice Relay settings are migrated to the ShanDianShuo default preset.
+- 已有目标 App 配置会保留。旧的 `macos_dictation` 语音投递配置会迁移到闪电说默认预设。
+- The Current App target is dynamic and is not saved into the configuration page target list.
+- “当前应用”目标是动态目标，不会保存到配置页目标列表中。
+- Voice Relay is off by default. The first enable flow may ask for administrator permission to install the official signed BlackHole 2ch driver.
+- 语音投递模式默认关闭。首次开启时，可能需要管理员授权以安装官方签名的 BlackHole 2ch 驱动。
+- Android Chrome may block microphone access on local HTTP pages until the local origin is allowed in Chrome flags; VibeCast shows the exact origin to copy.
+- Android Chrome 可能默认禁止局域网 HTTP 页面使用麦克风；VibeCast 会提示需要复制放通的具体 origin。
+- Mac and phone must be on the same reachable local network. Avoid router port forwarding and use trusted networks only.
+- Mac 与手机需要处在可互通的局域网内。请避免路由器端口转发，并只在可信网络中使用。
+
+## Known Limits / 已知限制
+
+- Voice Relay depends on browser microphone APIs, BlackHole 2ch, macOS audio routing, and the selected Mac voice input method; each layer can require one-time permission or setup.
+- 语音投递依赖浏览器麦克风 API、BlackHole 2ch、macOS 音频路由和所选 Mac 语音输入法；每一层都可能需要一次性授权或设置。
+- Doubao Input remains unsupported for Voice Relay in this release because its microphone selection cannot be reliably controlled from outside the app.
+- 本版本仍不支持豆包输入法的语音投递，因为它的麦克风选择无法从外部稳定控制。
+- macOS Dictation is intentionally not offered as a preset in this release.
+- 本版本有意不再提供 macOS 听写预设。
+- Voice Relay works best with Chrome on Android. Other mobile browsers may not expose the required microphone APIs on local pages.
+- 语音投递建议使用 Android Chrome；其他手机浏览器可能不会在局域网页面开放所需的麦克风 API。
+- App-specific focus, send behavior, and voice shortcut behavior can vary; use the configuration page to test each target and provider.
+- 不同目标 App 的聚焦、发送和语音快捷键行为可能不同，请在配置页逐个测试目标和语音输入法。
+- The Current App target uses the Mac foreground app at selection time; if the foreground app has no editable focused field, VibeCast will ask you to focus an input area first.
+- “当前应用”目标会在选择时锁定当时的 Mac 前台 App；如果该 App 当前没有可编辑焦点，VibeCast 会提示你先聚焦输入区域。

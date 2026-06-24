@@ -1,0 +1,15 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>VibeCast</title>
+        <item>
+            <title>0.4.0</title>
+            <pubDate>Wed, 24 Jun 2026 05:45:05 +0000</pubDate>
+            <sparkle:version>10</sparkle:version>
+            <sparkle:shortVersionString>0.4.0</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:releaseNotesLink>https://pls-1q43.github.io/VibeCast/VibeCast-0.4.0-macos.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/Pls-1q43/VibeCast/releases/download/v0.4.0/VibeCast-0.4.0-macos.zip" length="2443464" type="application/octet-stream" sparkle:edSignature="WPYDpl65IIq9e1wyx92j/QbmSzNLK7RHwN+bpoIYX0fGshCKUbcYgonuWNax0uJ1jTDnqT17OvXBBw03F9BHAg=="/>
+        </item>
+    </channel>
+</rss>
