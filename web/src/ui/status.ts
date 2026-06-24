@@ -13,6 +13,8 @@ export const STATUS_TONE: Record<SyncStatus, "neutral" | "ok" | "warn" | "error"
   syncing: "active",
   synced: "ok",
   composing: "active",
+  voice_starting: "active",
+  voice_recording: "active",
   target_lost: "warn",
   app_not_running: "warn",
   sync_failed: "error",

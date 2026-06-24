@@ -59,10 +59,32 @@
 
 .cfg-statusline,
 .cfg-result,
-.cfg-validation {
+.cfg-validation,
+.cfg-port-status {
   color: var(--text-dim);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.cfg-port-status {
+  min-height: 44px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  min-width: min(100%, 260px);
+}
+
+.cfg-port-status[data-tone="ok"] {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 36%, var(--border));
+}
+
+.cfg-port-status[data-tone="warn"] {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 42%, var(--border));
 }
 
 .cfg-permission-hint {
@@ -77,7 +99,8 @@
 }
 
 .cfg-hero__actions,
-.cfg-row__actions {
+.cfg-row__actions,
+.cfg-network__actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -111,6 +134,7 @@
 
 .cfg-onboarding,
 .cfg-add,
+.cfg-network,
 .cfg-list {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -146,17 +170,56 @@
   padding: 14px;
 }
 
+.cfg-network {
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+}
+
 .cfg-add h2,
+.cfg-network h2,
 .cfg-list__header h2 {
   margin: 0;
   font-size: 17px;
 }
 
 .cfg-add__controls,
+.cfg-network__grid,
 .cfg-row__quick,
 .cfg-advanced__grid {
   display: grid;
   gap: 10px;
+}
+
+.cfg-network__actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+.cfg-voice-explain {
+  display: grid;
+  gap: 4px;
+}
+
+.cfg-voice-explain p,
+.cfg-voice-toggle p {
+  margin: 0;
+  color: var(--text-dim);
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.cfg-voice-toggle {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
 }
 
 .cfg-list {
@@ -329,6 +392,16 @@
   .cfg-add__controls {
     grid-template-columns: minmax(150px, 0.8fr) minmax(220px, 1.1fr) minmax(220px, 1.1fr) auto;
     align-items: end;
+  }
+
+  .cfg-network__grid {
+    grid-template-columns: minmax(0, 1fr) minmax(180px, 360px);
+    align-items: start;
+  }
+
+  .cfg-network__actions {
+    grid-template-columns: minmax(260px, 1fr) minmax(140px, auto) minmax(260px, 0.9fr);
+    align-items: center;
   }
 
   .cfg-row {

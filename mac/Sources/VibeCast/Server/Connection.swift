@@ -20,14 +20,16 @@ final class Connection {
     private let nw: NWConnection
     private let queue: DispatchQueue
     private let staticServer: StaticFileServer
+    private let routeMode: StaticFileServer.RouteMode
     private var buffer = Data()
     private var isWebSocket = false
     private var closed = false
     private let maxTextFrameBytes = 128 * 1024
 
-    init(_ nw: NWConnection, staticServer: StaticFileServer, queue: DispatchQueue) {
+    init(_ nw: NWConnection, staticServer: StaticFileServer, routeMode: StaticFileServer.RouteMode, queue: DispatchQueue) {
         self.nw = nw
         self.staticServer = staticServer
+        self.routeMode = routeMode
         self.queue = queue
     }
 
@@ -78,7 +80,7 @@ final class Connection {
         }
 
         if req.method == "GET" {
-            if let (data, mime) = staticServer.resolve(path: req.path) {
+            if let (data, mime) = staticServer.resolve(path: req.path, mode: routeMode) {
                 sendRaw(HTTPResponse.ok(body: data, contentType: mime), thenClose: true)
             } else {
                 sendRaw(HTTPResponse.notFound(), thenClose: true)

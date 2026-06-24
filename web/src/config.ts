@@ -4,10 +4,18 @@ import "./ui/config.css";
 import {
   PROTOCOL_VERSION,
   type ConfigTarget,
+  type NetworkInterfaceInfo,
+  type NetworkSettings,
+  type PortCheckResult,
   type RunningApp,
   type ServerMessage,
   type TargetId,
   type TargetProfile,
+  type VoiceEnvironmentMessage,
+  type VoiceInputProvider,
+  type VoiceRelaySettings,
+  type VoiceTriggerMode,
+  type KeyShortcut,
   isServerMessage,
 } from "./ws/protocol.ts";
 import { getClientId } from "./store/draftStore.ts";
@@ -41,8 +49,15 @@ let runningApps: RunningApp[] = [];
 let serverName = "Mac";
 let accessibilityGranted = false;
 let connected = false;
+let networkDraft: NetworkSettings | null = null;
+let networkInterfaces: NetworkInterfaceInfo[] = [];
+let portStatus: PortCheckResult | null = null;
+let voiceEnvironment: VoiceEnvironmentMessage | null = null;
+let voiceSettings: VoiceRelaySettings = defaultVoiceSettings();
+let awaitingNetworkSave = false;
 let reconnectTimer: number | null = null;
 let statusTimer: number | null = null;
+let portCheckTimer: number | null = null;
 let lastStatus = i18n.t("cfg.connecting");
 
 function connect() {
@@ -85,10 +100,14 @@ function handle(m: ServerMessage) {
       connected = true;
       serverName = m.serverName;
       accessibilityGranted = m.accessibilityGranted;
+      voiceSettings.enabled = m.voiceRelayEnabled;
       setStatus(i18n.t("cfg.connected", { name: serverName }));
       send({ type: "get_config" });
       send({ type: "list_running_apps" });
       send({ type: "get_status" });
+      send({ type: "get_network_settings" });
+      send({ type: "get_voice_settings" });
+      send({ type: "get_voice_environment" });
       startStatusPolling();
       render();
       break;
@@ -107,6 +126,33 @@ function handle(m: ServerMessage) {
       break;
     case "running_apps":
       runningApps = m.apps;
+      render();
+      break;
+    case "network_settings":
+      networkDraft = { ...m.settings };
+      networkInterfaces = m.interfaces;
+      portStatus = m.portStatus;
+      render();
+      if (awaitingNetworkSave) {
+        awaitingNetworkSave = false;
+        setStatus(i18n.t("cfg.networkSaved"));
+      }
+      break;
+    case "network_interfaces":
+      networkInterfaces = m.interfaces;
+      render();
+      break;
+    case "port_check":
+      portStatus = m.result;
+      updatePortStatus();
+      break;
+    case "voice_environment":
+      voiceEnvironment = m;
+      if (!m.installed && m.message) setStatus(m.message);
+      render();
+      break;
+    case "voice_settings":
+      voiceSettings = normalizeVoiceSettings(m.settings);
       render();
       break;
     case "test_result": {
@@ -140,7 +186,7 @@ function send(msg: object) {
 function render() {
   document.title = i18n.t("cfg.pageTitle");
   mount.innerHTML = "";
-  mount.append(renderHeader(), renderOnboarding(), renderAddTarget(), renderTargetList());
+  mount.append(renderHeader(), renderOnboarding(), renderNetworkSettings(), renderVoiceEnvironment(), renderAddTarget(), renderTargetList());
 }
 
 function renderHeader(): HTMLElement {
@@ -283,6 +329,301 @@ function renderAddTarget(): HTMLElement {
   controls.append(iconPreview, wrapField(i18n.t("cfg.appName"), nameInput), wrapField("Bundle ID", bundleInput), wrapField(i18n.t("cfg.runningApp"), picker), iconPicker, addBtn);
   section.append(title, controls);
   return section;
+}
+
+function renderNetworkSettings(): HTMLElement {
+  const section = el("section", "cfg-network");
+  const title = document.createElement("h2");
+  title.textContent = i18n.t("cfg.networkTitle");
+  const hint = document.createElement("p");
+  hint.className = "cfg-hint";
+  hint.textContent = i18n.t("cfg.networkHint");
+
+  if (!networkDraft) {
+    const empty = el("p", "cfg-empty");
+    empty.textContent = i18n.t("cfg.loading");
+    section.append(title, empty);
+    return section;
+  }
+
+  const controls = el("div", "cfg-network__grid");
+  const bindValue = networkDraft.bindMode === "all" ? "all" : (networkDraft.bindAddress ?? "");
+  const bindOptions: [string, string][] = [
+    ["all", i18n.t("cfg.bindAll")],
+    ...networkInterfaces.map((iface) => [
+      iface.address,
+      `${iface.address} · ${iface.name}${iface.isPreferred ? ` · ${i18n.t("cfg.preferred")}` : ""}`,
+    ] as [string, string]),
+  ];
+  if (networkDraft.bindMode === "address" && networkDraft.bindAddress && !bindOptions.some(([v]) => v === networkDraft?.bindAddress)) {
+    bindOptions.push([networkDraft.bindAddress, `${networkDraft.bindAddress} · ${i18n.t("cfg.unavailableInterface")}`]);
+  }
+  const bind = select(bindValue, bindOptions, (v) => {
+    if (!networkDraft) return;
+    if (v === "all") {
+      networkDraft.bindMode = "all";
+      networkDraft.bindAddress = null;
+    } else {
+      networkDraft.bindMode = "address";
+      networkDraft.bindAddress = v;
+    }
+    schedulePortCheck();
+  });
+
+  const port = numberInput(networkDraft.port, (v) => {
+    if (!networkDraft) return;
+    networkDraft.port = v;
+    schedulePortCheck();
+  });
+  port.min = "1";
+  port.max = "65535";
+  port.step = "1";
+
+  const status = el("div", "cfg-port-status");
+  status.setAttribute("data-port-status", "");
+  status.dataset.tone = "neutral";
+  status.textContent = i18n.t("cfg.portUnknown");
+  controls.append(
+    wrapField(i18n.t("cfg.bindAddress"), bind, i18n.t("cfg.bindAddressHint")),
+    wrapField(i18n.t("cfg.port"), port, i18n.t("cfg.portHint")),
+  );
+
+  const actions = el("div", "cfg-network__actions");
+  const check = button(i18n.t("cfg.checkPort"), "btn btn--ghost", () => {
+    sendPortCheck();
+    setStatus(i18n.t("cfg.checkingPort"));
+  });
+  const save = button(i18n.t("cfg.saveNetwork"), "btn btn--primary", () => {
+    if (!networkDraft) return;
+    const next = normalizeNetworkDraft(networkDraft);
+    if (next.bindMode === "all" && !window.confirm(i18n.t("cfg.bindAllConfirm"))) return;
+    if (portStatus && portStatus.status !== "available" && portStatus.port === next.port) {
+      setStatus(i18n.t("cfg.portUnavailable"));
+      return;
+    }
+    awaitingNetworkSave = true;
+    send({ type: "set_network_settings", settings: next });
+    setStatus(i18n.t("cfg.savingNetwork"));
+  });
+  actions.append(status, check, save);
+  section.append(title, hint, controls, actions);
+  window.setTimeout(updatePortStatus, 0);
+  return section;
+}
+
+function renderVoiceEnvironment(): HTMLElement {
+  const section = el("section", "cfg-network");
+  const title = document.createElement("h2");
+  title.textContent = i18n.t("cfg.voiceTitle");
+  const explain = el("div", "cfg-voice-explain");
+  for (const key of ["cfg.voiceExplain1", "cfg.voiceExplain2", "cfg.voiceExplain3"]) {
+    const line = document.createElement("p");
+    line.textContent = i18n.t(key);
+    explain.append(line);
+  }
+
+  const toggleRow = el("div", "cfg-voice-toggle");
+  const toggleText = el("div", "cfg-row__summary");
+  const toggleTitle = document.createElement("strong");
+  toggleTitle.textContent = i18n.t("cfg.voiceRelaySwitch");
+  const toggleHint = document.createElement("p");
+  toggleHint.textContent = voiceSettings.enabled ? i18n.t("cfg.voiceRelayOn") : i18n.t("cfg.voiceRelayOff");
+  toggleText.append(toggleTitle, toggleHint);
+  const toggle = checkbox(voiceSettings.enabled, (enabled) => {
+    if (enabled && voiceEnvironment && !voiceEnvironment.installed && !window.confirm(i18n.t("cfg.blackHoleInstallConfirm"))) {
+      render();
+      return;
+    }
+    const next = normalizeVoiceSettings({ ...voiceSettings, enabled });
+    send({ type: "set_voice_settings", settings: next });
+    setStatus(enabled ? i18n.t("cfg.installingVoice") : i18n.t("cfg.voiceDisabling"));
+  });
+  toggle.setAttribute("aria-label", i18n.t("cfg.voiceRelaySwitch"));
+  toggleRow.append(toggle, toggleText);
+
+  section.append(title, explain, toggleRow);
+  if (!voiceSettings.enabled) {
+    if (voiceEnvironment?.message) {
+      const status = el("div", "cfg-pill cfg-pill--warn");
+      status.textContent = i18n.t("cfg.voiceMissing");
+      const detail = document.createElement("p");
+      detail.className = "cfg-hint";
+      detail.textContent = voiceEnvironment.message;
+      section.append(status, detail);
+    }
+    return section;
+  }
+
+  const status = el("div", voiceEnvironment?.installed ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+  status.textContent = voiceEnvironment?.installed
+    ? i18n.t("cfg.voiceInstalled", { name: voiceEnvironment.deviceName ?? "BlackHole 2ch" })
+    : i18n.t("cfg.voiceMissing");
+
+  const detail = document.createElement("p");
+  detail.className = "cfg-hint";
+  detail.textContent = voiceEnvironment
+    ? [
+        voiceEnvironment.defaultInputMatches ? i18n.t("cfg.voiceDefaultInputOk") : i18n.t("cfg.voiceDefaultInputWillSwitch"),
+        voiceEnvironment.message ?? "",
+      ].filter(Boolean).join(" · ")
+    : i18n.t("cfg.loading");
+  const providerSetupHint = renderVoiceProviderSetupHint(voiceSettings.provider);
+
+  const provider = select(voiceSettings.provider, voiceProviderOptions(), (v) => {
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, provider: v as VoiceInputProvider, ...providerDefaults(v as VoiceInputProvider) });
+    render();
+  });
+  const trigger = select(voiceSettings.triggerMode, [
+    ["toggle", i18n.t("cfg.voiceTriggerToggle")],
+    ["hold", i18n.t("cfg.voiceTriggerHold")],
+  ], (v) => {
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, triggerMode: v as VoiceTriggerMode });
+  });
+  const keyInput = input(voiceSettings.shortcut.key, "right_command");
+  const modsInput = input(voiceSettings.shortcut.modifiers.join(","), "command, option, control, shift");
+  const preset = select(voiceShortcutPresetValue(voiceSettings.shortcut), voiceShortcutOptions(), (v) => {
+    const next = voiceShortcutFromPreset(v, { modifiers: splitList(modsInput.value), key: keyInput.value || voiceSettings.shortcut.key });
+    keyInput.value = next.key;
+    modsInput.value = next.modifiers.join(",");
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, shortcut: next });
+  });
+  keyInput.addEventListener("input", () => {
+    const shortcut = { modifiers: splitList(modsInput.value), key: keyInput.value };
+    preset.value = voiceShortcutPresetValue(shortcut);
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, shortcut });
+  });
+  modsInput.addEventListener("input", () => {
+    const shortcut = { modifiers: splitList(modsInput.value), key: keyInput.value };
+    preset.value = voiceShortcutPresetValue(shortcut);
+    voiceSettings = normalizeVoiceSettings({ ...voiceSettings, shortcut });
+  });
+
+  const controls = el("div", "cfg-row__quick");
+  controls.append(
+    wrapField(i18n.t("cfg.voiceProvider"), provider, i18n.t("cfg.voiceProviderHint")),
+    wrapField(i18n.t("cfg.voiceTriggerMode"), trigger, i18n.t("cfg.voiceTriggerHint")),
+    wrapField(i18n.t("cfg.voiceWakeShortcut"), preset, i18n.t("cfg.voiceWakeShortcutHint")),
+    wrapField(i18n.t("cfg.voiceShortcutKey"), keyInput),
+    wrapField(i18n.t("cfg.voiceShortcutMods"), modsInput),
+  );
+
+  const actions = el("div", "cfg-row__actions");
+  actions.append(
+    button(i18n.t("cfg.saveVoiceSettings"), "btn btn--primary", () => {
+      send({ type: "set_voice_settings", settings: normalizeVoiceSettings(voiceSettings) });
+      setStatus(i18n.t("cfg.savingVoiceSettings"));
+    }),
+    button(i18n.t("cfg.refreshVoice"), "btn btn--ghost", () => {
+      send({ type: "get_voice_settings" });
+      send({ type: "get_voice_environment" });
+      setStatus(i18n.t("cfg.refreshingVoice"));
+    }),
+  );
+  if (voiceSettings.provider === "shandianshuo") {
+    actions.append(button(i18n.t("cfg.bindShanDianShuoMic"), "btn btn--ghost", () => {
+      send({ type: "bind_shandianshuo_mic" });
+      setStatus(i18n.t("cfg.bindingShanDianShuoMic"));
+    }));
+  } else if (voiceSettings.provider === "typeless") {
+    actions.append(button(i18n.t("cfg.bindTypelessMic"), "btn btn--ghost", () => {
+      send({ type: "bind_typeless_mic" });
+      setStatus(i18n.t("cfg.bindingTypelessMic"));
+    }));
+  }
+  if (voiceSettings.provider === "shandianshuo") {
+    const shandianshuoOk = voiceEnvironment?.shandianshuoMatchesVirtualMic === true;
+    const shandianshuoInstalled = voiceEnvironment?.shandianshuoInstalled === true;
+    const shandianshuoStatus = el("div", shandianshuoOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+    shandianshuoStatus.textContent = shandianshuoOk
+      ? i18n.t("cfg.shandianshuoBound")
+      : shandianshuoInstalled
+        ? i18n.t("cfg.shandianshuoNeedsBind")
+        : i18n.t("cfg.shandianshuoMissing");
+    const shandianshuoDetail = document.createElement("p");
+    shandianshuoDetail.className = "cfg-hint";
+    shandianshuoDetail.textContent = voiceEnvironment
+      ? [
+          voiceEnvironment.shandianshuoAudioDevice
+            ? i18n.t("cfg.shandianshuoAudioDevice", { device: voiceEnvironment.shandianshuoAudioDevice })
+            : "",
+          voiceEnvironment.shandianshuoMessage ?? "",
+        ].filter(Boolean).join(" · ")
+      : i18n.t("cfg.loading");
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(shandianshuoStatus, shandianshuoDetail, controls, actions);
+  } else if (voiceSettings.provider === "typeless") {
+    const typelessOk = voiceEnvironment?.typelessMatchesVirtualMic === true;
+    const typelessInstalled = voiceEnvironment?.typelessInstalled === true;
+    const typelessStatus = el("div", typelessOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+    typelessStatus.textContent = typelessOk
+      ? i18n.t("cfg.typelessBound")
+      : typelessInstalled
+        ? i18n.t("cfg.typelessNeedsBind")
+        : i18n.t("cfg.typelessMissing");
+    const typelessDetail = document.createElement("p");
+    typelessDetail.className = "cfg-hint";
+    typelessDetail.textContent = voiceEnvironment
+      ? [
+          voiceEnvironment.typelessAudioDevice
+            ? i18n.t("cfg.typelessAudioDevice", { device: voiceEnvironment.typelessAudioDevice })
+            : "",
+          voiceEnvironment.typelessMessage ?? "",
+        ].filter(Boolean).join(" · ")
+      : i18n.t("cfg.loading");
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(typelessStatus, typelessDetail, controls, actions);
+  } else if (voiceSettings.provider === "doubao_input") {
+    const doubaoOk = voiceEnvironment?.doubaoMatchesVirtualMic === true;
+    const doubaoInstalled = voiceEnvironment?.doubaoInstalled === true;
+    const doubaoStatus = el("div", doubaoOk ? "cfg-pill cfg-pill--ok" : "cfg-pill cfg-pill--warn");
+    doubaoStatus.textContent = doubaoOk
+      ? i18n.t("cfg.doubaoBound")
+      : doubaoInstalled
+        ? i18n.t("cfg.doubaoNeedsBind")
+        : i18n.t("cfg.doubaoMissing");
+    const doubaoDetail = document.createElement("p");
+    doubaoDetail.className = "cfg-hint";
+    doubaoDetail.textContent = voiceEnvironment
+      ? [
+          voiceEnvironment.doubaoAudioDevice
+            ? i18n.t("cfg.doubaoAudioDevice", { device: voiceEnvironment.doubaoAudioDevice })
+            : "",
+          voiceEnvironment.doubaoMessage ?? "",
+        ].filter(Boolean).join(" · ")
+      : i18n.t("cfg.loading");
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(doubaoStatus, doubaoDetail, controls, actions);
+  } else {
+    section.append(status, detail);
+    if (providerSetupHint) section.append(providerSetupHint);
+    section.append(controls, actions);
+  }
+  return section;
+}
+
+function renderVoiceProviderSetupHint(provider: VoiceInputProvider): HTMLElement | null {
+  let key = "";
+  switch (provider) {
+    case "wechat_input":
+      key = "cfg.voiceProviderWechatHint";
+      break;
+    case "typeless":
+      key = "cfg.voiceProviderTypelessHint";
+      break;
+    case "doubao_input":
+      key = "cfg.voiceProviderDoubaoHint";
+      break;
+    default:
+      break;
+  }
+  if (!key) return null;
+  const hint = document.createElement("p");
+  hint.className = "cfg-hint";
+  hint.textContent = i18n.t(key);
+  return hint;
 }
 
 function renderTargetList(): HTMLElement {
@@ -444,7 +785,6 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
   sendShortcutMods.addEventListener("input", () => {
     p.sendShortcut = { modifiers: splitList(sendShortcutMods.value), key: p.sendShortcut?.key ?? "enter" };
   });
-
   const grid = el("div", "cfg-advanced__grid");
   grid.append(
     wrapField(i18n.t("cfg.focusMode"), select(p.focusMode, [
@@ -464,6 +804,8 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
         if (p.writeMode === "clipboard_replace" || p.writeMode === "clipboard_paste") {
           p.writeMode = "clipboard_insert";
         }
+      } else if (targetId === "notion" && p.writeMode === "clipboard_replace") {
+        p.allowSelectAllReplace = true;
       }
     }), i18n.t("cfg.syncEditorHint")),
     wrapField(i18n.t("cfg.writeMode"), select(p.writeMode ?? "auto", [
@@ -474,6 +816,9 @@ function renderAdvanced(targetId: TargetId, p: TargetProfile): HTMLElement {
     ], (v) => {
       p.writeMode = v as TargetProfile["writeMode"];
       if (v === "clipboard_insert") p.allowSelectAllReplace = false;
+      if (targetId === "notion" && v === "clipboard_replace" && p.syncMode !== "editor") {
+        p.allowSelectAllReplace = true;
+      }
       if ((v === "clipboard_replace" || v === "clipboard_paste") && p.syncMode === "editor") {
         p.writeMode = "clipboard_insert";
         p.allowSelectAllReplace = false;
@@ -673,6 +1018,122 @@ function splitList(v: string): string[] {
   return v.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
+function defaultVoiceSettings(): VoiceRelaySettings {
+  return {
+    enabled: false,
+    provider: "shandianshuo",
+    triggerMode: "toggle",
+    shortcut: { modifiers: [], key: "right_command" },
+    managedOriginalAudioDevice: null,
+    managedVirtualAudioDevice: null,
+  };
+}
+
+function normalizeVoiceSettings(settings: VoiceRelaySettings): VoiceRelaySettings {
+  const originalProvider = settings.provider;
+  const provider = normalizeVoiceProvider(settings.provider);
+  const defaults = providerDefaults(provider);
+  let shortcut = originalProvider === "macos_dictation"
+    ? defaults.shortcut
+    : settings.shortcut?.key?.trim()
+    ? { modifiers: settings.shortcut.modifiers ?? [], key: settings.shortcut.key.trim() }
+    : defaults.shortcut;
+  return {
+    enabled: Boolean(settings.enabled),
+    provider,
+    triggerMode: settings.triggerMode || defaults.triggerMode,
+    shortcut,
+    managedOriginalAudioDevice: settings.managedOriginalAudioDevice ?? null,
+    managedVirtualAudioDevice: settings.managedVirtualAudioDevice ?? null,
+  };
+}
+
+function normalizeVoiceProvider(provider: VoiceInputProvider): VoiceInputProvider {
+  if (provider === "doubao_input") return "wechat_input";
+  if (provider === "macos_dictation") return "shandianshuo";
+  return provider;
+}
+
+function providerDefaults(provider: VoiceInputProvider): Pick<VoiceRelaySettings, "triggerMode" | "shortcut"> {
+  switch (provider) {
+    case "shandianshuo":
+      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "right_command" } };
+    case "typeless":
+      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "fn" } };
+    case "wechat_input":
+    case "doubao_input":
+      return { triggerMode: "hold", shortcut: { modifiers: [], key: "fn" } };
+    case "macos_dictation":
+      return providerDefaults("shandianshuo");
+    case "custom":
+      return { triggerMode: "toggle", shortcut: { modifiers: [], key: "right_option" } };
+  }
+}
+
+function voiceProviderOptions(): [string, string][] {
+  return [
+    ["shandianshuo", i18n.t("cfg.voiceProviderShanDianShuo")],
+    ["typeless", i18n.t("cfg.voiceProviderTypeless")],
+    ["wechat_input", i18n.t("cfg.voiceProviderWechat")],
+    ["custom", i18n.t("cfg.voiceProviderCustom")],
+  ];
+}
+
+function voiceShortcutOptions(): [string, string][] {
+  return [
+    ["right_command", i18n.t("cfg.voiceShortcutRightCommand")],
+    ["right_option", i18n.t("cfg.voiceShortcutRightOption")],
+    ["fn", i18n.t("cfg.voiceShortcutFn")],
+    ["left_command", i18n.t("cfg.voiceShortcutLeftCommand")],
+    ["left_option", i18n.t("cfg.voiceShortcutLeftOption")],
+    ["custom", i18n.t("cfg.voiceShortcutCustom")],
+  ];
+}
+
+function voiceShortcutPresetValue(shortcut: KeyShortcut): string {
+  if (shortcut.modifiers.length) return "custom";
+  switch (shortcut.key.trim().toLowerCase()) {
+  case "right_command":
+  case "rightcommand":
+  case "right_cmd":
+  case "rightcmd":
+  case "command_right":
+  case "cmd_right":
+    return "right_command";
+  case "right_option":
+  case "rightoption":
+  case "right_opt":
+  case "rightopt":
+  case "option_right":
+  case "opt_right":
+    return "right_option";
+  case "left_command":
+  case "leftcommand":
+  case "left_cmd":
+  case "leftcmd":
+  case "command_left":
+  case "cmd_left":
+    return "left_command";
+  case "left_option":
+  case "leftoption":
+  case "left_opt":
+  case "leftopt":
+  case "option_left":
+  case "opt_left":
+    return "left_option";
+  case "fn":
+  case "function":
+    return "fn";
+  default:
+    return "custom";
+  }
+}
+
+function voiceShortcutFromPreset(value: string, fallback: KeyShortcut): KeyShortcut {
+  if (value === "custom") return fallback;
+  return { modifiers: [], key: value };
+}
+
 function validateProfile(p: TargetProfile): string[] {
   const issues: string[] = [];
   if (!p.bundleId.trim()) issues.push(i18n.t("cfg.issueBundle"));
@@ -685,6 +1146,50 @@ function validateProfile(p: TargetProfile): string[] {
     issues.push(i18n.t("cfg.issueClipboard"));
   }
   return issues.length ? issues : [i18n.t("cfg.valid")];
+}
+
+function normalizeNetworkDraft(settings: NetworkSettings): NetworkSettings {
+  const port = Number.isFinite(settings.port) ? Math.max(1, Math.min(65535, Math.round(settings.port))) : 8787;
+  if (settings.bindMode === "all") return { bindMode: "all", bindAddress: null, port };
+  const fallback = networkInterfaces.find((iface) => iface.isPreferred)?.address ?? networkInterfaces[0]?.address ?? null;
+  return { bindMode: "address", bindAddress: settings.bindAddress || fallback, port };
+}
+
+function schedulePortCheck(): void {
+  if (portCheckTimer !== null) clearTimeout(portCheckTimer);
+  portCheckTimer = window.setTimeout(() => {
+    portCheckTimer = null;
+    sendPortCheck();
+  }, 250);
+}
+
+function sendPortCheck(): void {
+  if (!networkDraft || ws.readyState !== WebSocket.OPEN) return;
+  const next = normalizeNetworkDraft(networkDraft);
+  send({
+    type: "check_port",
+    bindMode: next.bindMode,
+    bindAddress: next.bindAddress ?? null,
+    port: next.port,
+  });
+}
+
+function updatePortStatus(): void {
+  const el = document.querySelector<HTMLElement>("[data-port-status]");
+  if (!el) return;
+  if (!portStatus) {
+    el.textContent = i18n.t("cfg.portUnknown");
+    el.dataset.tone = "neutral";
+    return;
+  }
+  const label =
+    portStatus.status === "available"
+      ? i18n.t("cfg.portAvailable")
+      : portStatus.status === "invalid"
+        ? i18n.t("cfg.portInvalid")
+        : i18n.t("cfg.portUnavailable");
+  el.textContent = portStatus.message ? `${label}: ${portStatus.message}` : label;
+  el.dataset.tone = portStatus.status === "available" ? "ok" : "warn";
 }
 
 function cssEscape(value: string): string {

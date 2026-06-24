@@ -98,6 +98,34 @@ final class ServerTests: XCTestCase {
         XCTAssertEqual(String(data: resolved?.data ?? Data(), encoding: .utf8), "ok")
     }
 
+    func testStaticFileServerPhoneModeDoesNotServeConfigPage() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibecast-static-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("phone".utf8).write(to: root.appendingPathComponent("index.html"))
+        try Data("config".utf8).write(to: root.appendingPathComponent("config.html"))
+
+        let server = StaticFileServer(webRoot: root)
+
+        XCTAssertNotNil(server.resolve(path: "/", mode: .phone))
+        XCTAssertNil(server.resolve(path: "/config.html", mode: .phone))
+    }
+
+    func testStaticFileServerConfigModeDoesNotServePhoneHome() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("vibecast-static-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("phone".utf8).write(to: root.appendingPathComponent("index.html"))
+        try Data("config".utf8).write(to: root.appendingPathComponent("config.html"))
+
+        let server = StaticFileServer(webRoot: root)
+
+        XCTAssertNotNil(server.resolve(path: "/config.html", mode: .config))
+        XCTAssertNil(server.resolve(path: "/", mode: .config))
+    }
+
     func testStaticFileServerRejectsSiblingPrefixTraversal() throws {
         let base = FileManager.default.temporaryDirectory
             .appendingPathComponent("vibecast-static-\(UUID().uuidString)", isDirectory: true)

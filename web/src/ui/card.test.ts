@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Card } from "./card.ts";
 import type { I18n } from "../i18n.ts";
 
@@ -10,6 +10,11 @@ const i18n: I18n = {
 };
 
 describe("Card", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = "";
+  });
+
   it("grows the textarea to fit restored text", () => {
     const card = makeCard();
     mockScrollHeight(card.textarea, 180);
@@ -40,6 +45,62 @@ describe("Card", () => {
 
     expect(card.element.querySelector(".btn--primary")?.textContent).toBe("card.done");
   });
+
+  it("updates target title without rebuilding the card", () => {
+    const card = makeCard();
+
+    card.updateTarget("当前应用：Notion", null);
+
+    expect(card.element.querySelector(".card__title")?.textContent).toBe("当前应用：Notion");
+    expect(card.element.getAttribute("aria-label")).toBe("当前应用：Notion input card");
+  });
+
+  it("starts voice mode on long press from compact input", () => {
+    vi.useFakeTimers();
+    const onVoiceHoldStart = vi.fn();
+    const card = makeCard({ onVoiceHoldStart });
+    card.setVoiceRelayEnabled(true);
+    card.setStatus("focused");
+
+    const pressLayer = card.element.querySelector<HTMLElement>(".card__voicepress")!;
+    const event = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+    Object.defineProperty(event, "button", { value: 0 });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    pressLayer.dispatchEvent(event);
+    vi.advanceTimersByTime(451);
+
+    expect(onVoiceHoldStart).toHaveBeenCalledWith("codex");
+  });
+
+  it("hides textarea placeholder while compact so the voice label does not ghost", () => {
+    const card = makeCard();
+    card.setVoiceRelayEnabled(true);
+    document.body.append(card.element);
+
+    expect(card.textarea.placeholder).toBe("");
+
+    card.textarea.focus();
+    card.refreshButtons();
+
+    expect(card.textarea.placeholder).toBe("card.placeholder");
+  });
+
+  it("does not enter voice mode before voice relay is enabled", () => {
+    vi.useFakeTimers();
+    const onVoiceHoldStart = vi.fn();
+    const card = makeCard({ onVoiceHoldStart });
+    card.setStatus("focused");
+
+    const pressLayer = card.element.querySelector<HTMLElement>(".card__voicepress")!;
+    const event = new Event("pointerdown", { bubbles: true }) as PointerEvent;
+    Object.defineProperty(event, "button", { value: 0 });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    pressLayer.dispatchEvent(event);
+    vi.advanceTimersByTime(451);
+
+    expect(onVoiceHoldStart).not.toHaveBeenCalled();
+    expect(card.textarea.placeholder).toBe("card.placeholder");
+  });
 });
 
 function makeCard(overrides: Partial<ConstructorParameters<typeof Card>[4]> = {}): Card {
@@ -49,6 +110,8 @@ function makeCard(overrides: Partial<ConstructorParameters<typeof Card>[4]> = {}
     onSend: vi.fn(),
     onClear: vi.fn(),
     onRefocus: vi.fn(),
+    onVoiceHoldStart: vi.fn(),
+    onVoiceHoldEnd: vi.fn(),
     ...overrides,
   });
 }

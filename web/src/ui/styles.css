@@ -272,24 +272,63 @@ textarea {
   color: var(--active);
 }
 
+.card__inputwrap {
+  position: relative;
+}
+
 .card__textarea {
   width: 100%;
-  min-height: 96px;
+  min-height: 46px;
   overflow: hidden;
   resize: none;
   font-size: 16px; /* ≥16px 避免 iOS/部分安卓自动缩放 */
   line-height: 1.5;
-  padding: 10px;
+  padding: 10px 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg);
   color: var(--text);
   font-family: inherit;
+  touch-action: manipulation;
+  transition: min-height 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.card__voicepress {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid transparent;
+  color: var(--text-dim);
+  opacity: 0.88;
+  font-size: 16px;
+  line-height: 1.5;
+  cursor: text;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.card__textarea::placeholder {
+  color: var(--text-dim);
+  opacity: 0.74;
+}
+
+.card__inputwrap--compact .card__voicepress {
+  display: flex;
 }
 
 .card__textarea:focus {
+  min-height: 96px;
   outline: 2px solid var(--primary);
   outline-offset: 1px;
+}
+
+.card--voice-active .card__textarea {
+  border-color: var(--active);
+  background: color-mix(in srgb, var(--primary) 12%, var(--bg));
 }
 
 .card__actions {

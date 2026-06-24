@@ -18,4 +18,16 @@ enum RunningAppsProvider {
         }
         return result.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
+
+    /// 当前前台常规应用，用于手机端“当前应用”动态目标。排除 VibeCast 自身，避免配置页/日志窗口抢占目标。
+    static func frontmostRegularApp() -> NSRunningApplication? {
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.activationPolicy == .regular,
+              app.bundleIdentifier != Bundle.main.bundleIdentifier,
+              app.bundleIdentifier != nil,
+              app.localizedName != nil else {
+            return nil
+        }
+        return app
+    }
 }

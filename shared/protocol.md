@@ -9,7 +9,7 @@
 
 - `protocolVersion`: 当前为 `1`
 - `sessionId`: 由手机端生成的 UUID，标识一次「目标编辑会话」。切换目标 = 新会话。
-- `targetId`: 目标字符串 ID。预置目标为 `codex` | `workbuddy` | `notion` | `obsidian` | `codebuddycn` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
+- `targetId`: 目标字符串 ID。动态目标 `current_app` 表示 Mac 当前前台应用；预置目标为 `codex` | `workbuddy` | `notion` | `obsidian` | `codebuddycn` | `codebuddy`；配置页也可创建 `custom_*` 自定义目标。合法字符为字母、数字、`.`、`_`、`-`，长度 2–64。
 - `syncMode`: `mirror` 表示完整草稿镜像；`editor` 表示只替换本轮由 VibeCast 插入的文本段，用于 Obsidian、Notion 普通文档块等复杂编辑器。
 - `revision`: 每个 targetId 独立维护的单调递增整数，从 `1` 开始。Mac 只应用比已应用版本更高的快照。
 - 时间戳 `clientTimestamp`: 毫秒级 Unix 时间（可选，仅诊断用）。
@@ -43,6 +43,7 @@
   "serverName": "Jeffrey's Mac",
   "protocolVersion": 1,
   "targets": [
+    { "id": "current_app", "displayName": "当前应用：Codex", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "codex", "displayName": "Codex", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "workbuddy", "displayName": "WorkBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "notion", "displayName": "Notion", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
@@ -50,10 +51,23 @@
     { "id": "codebuddycn", "displayName": "CodeBuddyCN", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
     { "id": "codebuddy", "displayName": "CodeBuddy", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" }
   ],
-  "accessibilityGranted": true
+  "accessibilityGranted": true,
+  "voiceRelayEnabled": false
 }
 ```
-> `targets` 只返回已启用且已绑定 Bundle ID 的目标。手机端应按该列表动态渲染卡片，而不是写死预置目标。`iconDataUrl` 可省略，手机端应回退到预置图标或首字母图标。`syncMode=editor` 时手机端“发送”按钮显示为“完成”。
+> `targets` 只返回已启用且已绑定 Bundle ID 的目标，并可在第一项包含动态 `current_app`。手机端应按该列表动态渲染卡片，而不是写死预置目标。`iconDataUrl` 可省略，手机端应回退到预置图标或首字母图标。`syncMode=editor` 时手机端“发送”按钮显示为“完成”。
+
+### ← targets (Mac → 手机)
+当前应用或可用目标变化时，Mac 可主动推送最新目标列表；结构与 `hello_ack.targets` 相同。
+```json
+{
+  "type": "targets",
+  "targets": [
+    { "id": "current_app", "displayName": "当前应用：Notion", "iconDataUrl": "data:image/png;base64,...", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" },
+    { "id": "codex", "displayName": "Codex", "available": true, "clearAfterSend": true, "allowEmpty": false, "syncMode": "mirror" }
+  ]
+}
+```
 
 ### ← error (Mac → 手机，握手失败)
 ```json
@@ -179,7 +193,99 @@ Mac 规则（顺序）：
 
 ---
 
-## 7. 安全校验（Mac 端对每条消息）
+## 7. 语音传递
+
+语音传递不是一个配置页中的全局模式，而是一次按住输入框触发的临时会话：
+1. 手机端长按目标卡片输入框，发送 `select_target` 并开始采集麦克风 PCM。
+2. Mac 切换到目标应用，把默认输入设备临时切到虚拟麦克风，按目标 Profile 的 `voiceShortcut` 唤起系统语音输入法。
+3. 手机持续发送音频块；Mac 把音频写入虚拟麦克风对应的输出设备。
+4. 手机松手或取消时发送 `voice_stop`；Mac 再按一次 `voiceShortcut` 停止听写，并恢复之前的默认输入设备。
+
+### → voice_start
+```json
+{
+  "type": "voice_start",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "sampleRate": 48000,
+  "channels": 1,
+  "codec": "pcm_s16le",
+  "clientTimestamp": 1781760000000
+}
+```
+
+当前实验版只接受 `codec="pcm_s16le"`，`sampleRate > 0`，`channels` 为 `1` 或 `2`。
+
+### → voice_chunk
+```json
+{
+  "type": "voice_chunk",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "sequence": 12,
+  "audioBase64": "...",
+  "clientTimestamp": 1781760000123
+}
+```
+
+`audioBase64` 是 PCM S16LE 原始字节的 Base64。手机端应等待 `voice_state{state:"started"}` 后发送或刷新缓存的音频块。
+
+### → voice_stop
+```json
+{
+  "type": "voice_stop",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "reason": "release",
+  "clientTimestamp": 1781760002500
+}
+```
+
+`reason` 可为 `release`、`cancel`、`error`、`disconnect`。
+
+### ← voice_state
+```json
+{
+  "type": "voice_state",
+  "sessionId": "voice-session-uuid",
+  "targetId": "codex",
+  "state": "started",
+  "message": "语音传递已开始",
+  "receivedBytes": 0
+}
+```
+
+`state` 为 `started`、`stopped` 或 `error`。`receivedBytes` 可省略，停止时用于诊断 Mac 已接收的音频量。
+
+### → get_voice_environment / install_virtual_mic
+```json
+{ "type": "get_voice_environment" }
+{ "type": "install_virtual_mic" }
+```
+
+### ← voice_environment
+```json
+{
+  "type": "voice_environment",
+  "installed": true,
+  "deviceName": "BlackHole 2ch",
+  "defaultInputMatches": false,
+  "canAutoSwitch": true,
+  "message": null
+}
+```
+
+当前实验版会优先寻找 `VibeCast Virtual Mic`，其次兼容 `BlackHole 2ch`。`install_virtual_mic` 在无内置驱动包时只返回环境诊断，不会静默安装第三方驱动。
+
+`TargetProfile.voiceShortcut`：
+```json
+{ "voiceShortcut": { "modifiers": [], "key": "right_command" } }
+```
+默认值为右 Option；闪电说通常使用右 Cmd (`right_command`)。配置页把这个选项放在全局“语音输入环境”里，保存时统一写入各目标 Profile。
+
+---
+
+## 8. 安全校验（Mac 端对每条消息）
 
 必须校验：配对令牌、消息结构合法、targetId 合法、sessionId 与当前绑定一致、revision 单调、text 长度上限（默认 ≤ 10000，可配置）、消息频率（超限回 `RATE_LIMITED`）。
 
@@ -192,7 +298,7 @@ Mac 规则（顺序）：
 
 ---
 
-## 8. 配置页消息
+## 9. 配置页消息
 
 ### → get_config
 ```json
@@ -248,3 +354,59 @@ Mac 规则（顺序）：
 ```json
 { "type": "server_status", "serverName": "Jeffrey's Mac", "accessibilityGranted": true }
 ```
+
+### → get_network_settings
+```json
+{ "type": "get_network_settings" }
+```
+
+### ← network_settings
+```json
+{
+  "type": "network_settings",
+  "settings": { "bindMode": "address", "bindAddress": "192.168.1.12", "port": 8787 },
+  "interfaces": [
+    { "id": "en0-192.168.1.12", "name": "en0", "address": "192.168.1.12", "isPreferred": true }
+  ],
+  "portStatus": {
+    "bindMode": "address",
+    "bindAddress": "192.168.1.12",
+    "port": 8787,
+    "status": "available",
+    "message": "当前服务正在使用"
+  },
+  "accessUrl": "http://192.168.1.12:8787/?token=..."
+}
+```
+
+`bindMode` 为 `address` 或 `all`。`all` 表示手机端入口监听全部本地接口 (`0.0.0.0`)，配置页必须在保存前提示公网暴露风险。`accessUrl` 是手机端页面访问地址，不是配置页地址。
+
+### → check_port / ← port_check
+```json
+{ "type": "check_port", "bindMode": "address", "bindAddress": "192.168.1.12", "port": 8787 }
+```
+
+```json
+{
+  "type": "port_check",
+  "result": {
+    "bindMode": "address",
+    "bindAddress": "192.168.1.12",
+    "port": 8787,
+    "status": "available",
+    "message": "端口可用"
+  }
+}
+```
+
+`status` 为 `available`、`unavailable` 或 `invalid`。当前服务正在使用的配置应返回 `available`，避免把当前监听端口误报为冲突。
+
+### → set_network_settings
+```json
+{
+  "type": "set_network_settings",
+  "settings": { "bindMode": "all", "bindAddress": null, "port": 8788 }
+}
+```
+
+Mac 保存后只重启手机端入口服务。配置页必须保持在 `127.0.0.1` / `localhost` 的本地控制入口，不随手机端绑定 IP 或端口跳转。

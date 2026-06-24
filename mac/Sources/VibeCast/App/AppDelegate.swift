@@ -6,11 +6,12 @@ import Sparkle
 
 final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate {
     private var statusItem: NSStatusItem!
-    private var server: Server?
+    private var phoneServer: Server?
+    private var configServer: Server?
     private var session: SessionManager!
     private let updaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private var aboutWindowController: AboutWindowController?
-    private let defaultPort: UInt16 = 8787
+    private let networkSettings = NetworkSettingsStore()
 
     private var pairedCount = 0
 
@@ -19,7 +20,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         configureStatusItem()
 
         let serverName = Host.current().localizedName ?? "Mac"
-        session = SessionManager(serverName: serverName, accessibilityGranted: accessibilityGranted())
+        session = SessionManager(serverName: serverName, accessibilityGranted: accessibilityGranted(),
+                                 networkSettings: networkSettings)
         session.delegate = self
 
         // 首次启动：若未授权辅助功能，弹出系统授权提示（PRD 7.2）。
@@ -27,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
             AccessibilityPermission.promptIfNeeded()
         }
 
-        startServer()
+        startConfigServer()
+        startPhoneServer()
         rebuildMenu()
 
         // 权限可能在运行中被授予，菜单周期性刷新权限状态。
@@ -36,6 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         }
 
         registerSleepWakeObservers()
+        registerFrontmostAppObserver()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        session?.restoreManagedVoiceInput()
     }
 
     // MARK: - 睡眠/唤醒（PRD 16.5）
@@ -48,6 +56,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
                        name: NSWorkspace.didWakeNotification, object: nil)
     }
 
+    private func registerFrontmostAppObserver() {
+        NSWorkspace.shared.notificationCenter.addObserver(self, selector: #selector(frontmostAppDidChange),
+                                                          name: NSWorkspace.didActivateApplicationNotification,
+                                                          object: nil)
+    }
+
     @objc private func systemWillSleep() {
         session.handleSystemWillSleep()
     }
@@ -56,31 +70,116 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
         session.handleSystemDidWake()
     }
 
+    @objc private func frontmostAppDidChange() {
+        session.handleFrontmostApplicationChanged()
+    }
+
     // MARK: - Server 生命周期
 
-    private func startServer() {
+    private func startConfigServer(retryOnFailure: Bool = false, attempt: Int = 0) {
+        guard configServer == nil else { return }
         guard let staticServer = StaticFileServer() else {
             log(MacI18n.t("missingResources"))
             return
         }
-        let srv = Server(port: defaultPort, staticServer: staticServer)
+        for port in UInt16(8786)...UInt16(8795) {
+            let srv = Server(port: port, bindHost: "127.0.0.1", staticServer: staticServer, routeMode: .config)
+            srv.delegate = session
+            srv.failureHandler = { [weak self, weak srv] error in
+                DispatchQueue.main.async {
+                    guard let self, let srv, self.configServer === srv else { return }
+                    self.log(MacI18n.f("serviceStartFailed", String(describing: error)))
+                    self.configServer = nil
+                    self.rebuildMenu()
+                    if retryOnFailure && attempt < 5 {
+                        self.scheduleConfigServerRestart(attempt: attempt + 1)
+                    }
+                }
+            }
+            do {
+                try srv.start()
+                configServer = srv
+                log(MacI18n.f("configServiceStarted", Int(port)))
+                return
+            } catch {
+                continue
+            }
+        }
+        log(MacI18n.t("configServiceStartFailed"))
+        if retryOnFailure && attempt < 5 {
+            scheduleConfigServerRestart(attempt: attempt + 1)
+        }
+    }
+
+    private func startPhoneServer(retryOnFailure: Bool = false, attempt: Int = 0) {
+        guard phoneServer == nil else { return }
+        guard let staticServer = StaticFileServer() else {
+            log(MacI18n.t("missingResources"))
+            return
+        }
+        let settings = networkSettings.normalizedForCurrentInterfaces()
+        let bindHost = settings.bindMode == .all ? nil : settings.bindAddress
+        let srv = Server(port: settings.port, bindHost: bindHost, staticServer: staticServer, routeMode: .phone)
         srv.delegate = session
+        srv.failureHandler = { [weak self, weak srv] error in
+            DispatchQueue.main.async {
+                guard let self, let srv, self.phoneServer === srv else { return }
+                self.log(MacI18n.f("serviceStartFailed", String(describing: error)))
+                self.phoneServer = nil
+                self.rebuildMenu()
+                if retryOnFailure && attempt < 5 {
+                    self.schedulePhoneServerRestart(attempt: attempt + 1)
+                }
+            }
+        }
         do {
             try srv.start()
-            server = srv
-            log(MacI18n.f("serviceStarted", Int(defaultPort)))
+            phoneServer = srv
+            log(MacI18n.f("serviceStarted", bindHost ?? "*", Int(settings.port)))
         } catch {
             log(MacI18n.f("serviceStartFailed", String(describing: error)))
+            if retryOnFailure && attempt < 5 {
+                schedulePhoneServerRestart(attempt: attempt + 1)
+            }
         }
         rebuildMenu()
     }
 
-    private func restartServer() {
+    private func restartPhoneServer() {
         log(MacI18n.t("restarting"))
-        server?.stop()
-        server = nil
+        phoneServer?.stop()
+        phoneServer = nil
         pairedCount = 0
-        startServer()
+        schedulePhoneServerRestart(attempt: 0)
+    }
+
+    private func restartAllServers() {
+        log(MacI18n.t("restarting"))
+        phoneServer?.stop()
+        configServer?.stop()
+        phoneServer = nil
+        configServer = nil
+        pairedCount = 0
+        rebuildMenu()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self else { return }
+            self.startConfigServer(retryOnFailure: true)
+            self.startPhoneServer(retryOnFailure: true)
+        }
+    }
+
+    private func scheduleConfigServerRestart(attempt: Int) {
+        let delay = 0.25 + Double(attempt) * 0.25
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.startConfigServer(retryOnFailure: true, attempt: attempt)
+        }
+    }
+
+    private func schedulePhoneServerRestart(attempt: Int) {
+        let delay = 0.25 + Double(attempt) * 0.25
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.startPhoneServer(retryOnFailure: true, attempt: attempt)
+        }
     }
 
     // MARK: - 权限
@@ -96,13 +195,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
         let menu = NSMenu()
 
-        let running = server != nil
+        let running = phoneServer != nil
         menu.addItem(makeInfo(running ? MacI18n.t("serviceRunning") : MacI18n.t("serviceStopped")))
 
-        if let ip = NetworkInfo.primaryLANAddress() {
-            let url = "http://\(ip):\(defaultPort)/?token=\(Pairing.token)"
+        if let url = accessURL(path: "/"), let ip = displayAddress() {
             menu.addItem(makeInfo(MacI18n.t("phoneAddress")))
-            let addr = makeInfo("  \(ip):\(defaultPort)")
+            let addr = makeInfo("  \(ip):\(networkSettings.normalizedForCurrentInterfaces().port)")
             addr.toolTip = url
             menu.addItem(addr)
             let copyItem = NSMenuItem(title: MacI18n.t("copyAddress"), action: #selector(copyAddress), keyEquivalent: "")
@@ -212,7 +310,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func restart() {
-        restartServer()
+        restartAllServers()
     }
 
     @objc private func regenToken() {
@@ -229,11 +327,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func openConfigPage() {
-        guard let ip = NetworkInfo.primaryLANAddress() else {
+        guard let urlStr = configURL() else {
             log(MacI18n.t("configNoLAN"))
             return
         }
-        let urlStr = "http://\(ip):\(defaultPort)/config.html?token=\(Pairing.token)"
         if let url = URL(string: urlStr) {
             NSWorkspace.shared.open(url)
         }
@@ -242,13 +339,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     @objc private func showLog() {
         let alert = NSAlert()
         alert.messageText = MacI18n.t("diagnosticsTitle")
-        alert.informativeText = DiagnosticsLog.shared.snapshot(maxTail: 40).joined(separator: "\n")
+        alert.accessoryView = diagnosticsLogView()
         alert.addButton(withTitle: MacI18n.t("exportDiagnostics"))
         alert.addButton(withTitle: MacI18n.t("close"))
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn {
             exportDiagnostics()
         }
+    }
+
+    private func diagnosticsLogView() -> NSView {
+        let text = DiagnosticsLog.shared.snapshot(maxTail: 200).joined(separator: "\n")
+
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 720, height: 420))
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = true
+        scroll.autohidesScrollers = false
+        scroll.borderType = .bezelBorder
+
+        let textView = NSTextView(frame: scroll.bounds)
+        textView.isEditable = false
+        textView.isSelectable = true
+        textView.isRichText = false
+        textView.string = text
+        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        textView.textColor = .labelColor
+        textView.backgroundColor = .textBackgroundColor
+        textView.textContainerInset = NSSize(width: 8, height: 8)
+        textView.textContainer?.widthTracksTextView = false
+        textView.textContainer?.containerSize = NSSize(width: CGFloat.greatestFiniteMagnitude,
+                                                       height: CGFloat.greatestFiniteMagnitude)
+        textView.isHorizontallyResizable = true
+        textView.isVerticallyResizable = true
+        textView.minSize = NSSize(width: 0, height: scroll.contentSize.height)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+
+        scroll.documentView = textView
+        NSLayoutConstraint.activate([
+            scroll.widthAnchor.constraint(equalToConstant: 720),
+            scroll.heightAnchor.constraint(equalToConstant: 420)
+        ])
+        return scroll
     }
 
     private func exportDiagnostics() {
@@ -271,7 +403,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
     }
 
     @objc private func quit() {
-        server?.stop()
+        session?.restoreManagedVoiceInput()
+        phoneServer?.stop()
+        configServer?.stop()
         NSApp.terminate(nil)
     }
 
@@ -297,5 +431,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SessionManagerDelegate
 
     func sessionConfigChanged() {
         DispatchQueue.main.async { self.rebuildMenu() }
+    }
+
+    func sessionNetworkSettingsChanged(_ settings: NetworkSettings) {
+        DispatchQueue.main.async {
+            self.restartPhoneServer()
+        }
+    }
+
+    private func displayAddress() -> String? {
+        let settings = networkSettings.normalizedForCurrentInterfaces()
+        switch settings.bindMode {
+        case .all:
+            return NetworkInfo.primaryLANAddress()
+        case .address:
+            return settings.bindAddress
+        }
+    }
+
+    private func accessURL(path: String) -> String? {
+        guard let host = displayAddress() else { return nil }
+        let settings = networkSettings.normalizedForCurrentInterfaces()
+        return "http://\(host):\(settings.port)\(path)?token=\(Pairing.token)"
+    }
+
+    private func configURL() -> String? {
+        guard let port = configServer?.port else { return nil }
+        return "http://127.0.0.1:\(port)/config.html?token=\(Pairing.token)"
     }
 }

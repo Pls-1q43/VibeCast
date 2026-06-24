@@ -13,33 +13,74 @@ protocol ServerDelegate: AnyObject {
 
 final class Server: ConnectionDelegate {
     weak var delegate: ServerDelegate?
+    var failureHandler: ((NWError) -> Void)?
 
     let port: UInt16
+    let bindHost: String?
+    let routeMode: StaticFileServer.RouteMode
     private let queue = DispatchQueue(label: "vibecast.server", attributes: .concurrent)
     private var listener: NWListener?
     private let staticServer: StaticFileServer
     private var connections: [UUID: Connection] = [:]
     private let lock = NSLock()
 
-    init(port: UInt16, staticServer: StaticFileServer) {
+    init(port: UInt16, bindHost: String?, staticServer: StaticFileServer, routeMode: StaticFileServer.RouteMode = .all) {
         self.port = port
+        self.bindHost = bindHost
+        self.routeMode = routeMode
         self.staticServer = staticServer
     }
 
     func start() throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
-        let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+        let listener: NWListener
+        if let bindHost, !bindHost.isEmpty {
+            guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
+                throw NWError.posix(.EINVAL)
+            }
+            params.requiredLocalEndpoint = .hostPort(host: NWEndpoint.Host(bindHost),
+                                                     port: endpointPort)
+            listener = try NWListener(using: params)
+        } else {
+            listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
+        }
         listener.newConnectionHandler = { [weak self] nw in
             self?.accept(nw)
         }
-        listener.stateUpdateHandler = { state in
+        let startup = DispatchSemaphore(value: 0)
+        let startupLock = NSLock()
+        var startupResult: Result<Void, NWError>?
+        func finishStartup(_ result: Result<Void, NWError>) {
+            startupLock.lock()
+            let shouldSignal = startupResult == nil
+            if shouldSignal { startupResult = result }
+            startupLock.unlock()
+            if shouldSignal { startup.signal() }
+        }
+
+        listener.stateUpdateHandler = { [weak self] state in
             if case .failed(let err) = state {
                 FileHandle.standardError.write(Data("Listener failed: \(err)\n".utf8))
+                finishStartup(.failure(err))
+                self?.failureHandler?(err)
+            } else if case .ready = state {
+                finishStartup(.success(()))
             }
         }
         listener.start(queue: queue)
         self.listener = listener
+
+        if startup.wait(timeout: .now() + 1.5) == .success {
+            startupLock.lock()
+            let result = startupResult
+            startupLock.unlock()
+            if case .failure(let error) = result {
+                listener.cancel()
+                self.listener = nil
+                throw error
+            }
+        }
     }
 
     func stop() {
@@ -54,7 +95,7 @@ final class Server: ConnectionDelegate {
     }
 
     private func accept(_ nw: NWConnection) {
-        let conn = Connection(nw, staticServer: staticServer, queue: queue)
+        let conn = Connection(nw, staticServer: staticServer, routeMode: routeMode, queue: queue)
         conn.delegate = self
         lock.lock()
         connections[conn.id] = conn
